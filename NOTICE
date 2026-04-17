@@ -1,0 +1,14 @@
+Confluence Engine
+Copyright 2026 Confluence Quantitative Research Group
+
+This product includes software developed by the Confluence Quantitative Research Group.
+
+Portions of this software are derived from open-source components, used under their respective licenses:
+- React (MIT)
+- Vite (MIT)
+- Tailwind CSS (MIT)
+- Lucide React (ISC)
+- Framer Motion (MIT)
+- Express (MIT)
+
+All proprietary algorithms, including the "Mixture of Experts" (MoE) architecture, the "Apex Pod" global sensing logic, and the "Seed Logic" Fibonacci execution modules, are the exclusive intellectual property of Confluence Quantitative Research Group.

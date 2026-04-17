@@ -1,0 +1,170 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400&display=swap');
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-serif: 'Cormorant Garamond', serif;
+    --font-sans: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    
+    /* Golden Ratio Scale for Spacing & Sizing */
+    --spacing-phi-sm: 0.618rem;
+    --spacing-phi: 1rem;
+    --spacing-phi-lg: 1.618rem;
+    --spacing-phi-xl: 2.618rem;
+    --spacing-phi-2xl: 4.236rem;
+
+    --color-gold: #d4af37;
+    --color-emerald: #064e3b;
+    --color-ivory: #fdfcf0;
+    --color-obsidian: #08090a;
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+}
+
+:root {
+    --background: #08090a;
+    --foreground: #fdfcf0;
+    
+    --card: rgba(13, 15, 17, 0.7);
+    --card-foreground: #fdfcf0;
+    
+    --popover: #0d0f11;
+    --popover-foreground: #fdfcf0;
+    
+    --primary: #d4af37;
+    --primary-foreground: #08090a;
+    
+    --secondary: #064e3b;
+    --secondary-foreground: #fdfcf0;
+    
+    --muted: rgba(253, 252, 240, 0.1);
+    --muted-foreground: rgba(253, 252, 240, 0.6);
+    
+    --accent: rgba(212, 175, 55, 0.15);
+    --accent-foreground: #d4af37;
+    
+    --destructive: #7f1d1d;
+    --destructive-foreground: #fdfcf0;
+    
+    --border: rgba(212, 175, 55, 0.1);
+    --input: rgba(212, 175, 55, 0.05);
+    --ring: #d4af37;
+    
+    --radius: 1.618rem; /* Golden ratio radius */
+}
+
+@layer base {
+  html, body {
+    cursor: none !important;
+  }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+  
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image: 
+      linear-gradient(rgba(212, 175, 55, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(212, 175, 55, 0.03) 1px, transparent 1px),
+      radial-gradient(circle at 0% 0%, rgba(6, 78, 59, 0.2) 0%, transparent 50%),
+      radial-gradient(circle at 100% 100%, rgba(212, 175, 55, 0.15) 0%, transparent 50%);
+    background-size: 40px 40px, 40px 40px, 100% 100%, 100% 100%;
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, .font-serif {
+    font-family: var(--font-serif);
+    letter-spacing: -0.02em;
+    text-shadow: 0 0 20px rgba(212, 175, 55, 0.2);
+  }
+}
+
+/* Silk Smooth Scrollbar */
+::-webkit-scrollbar {
+  width: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(212, 175, 55, 0.3);
+  border-radius: 10px;
+}
+
+/* Custom Cursor Styles - Enhanced for visibility */
+.custom-cursor {
+  width: 12px;
+  height: 12px;
+  background: #d4af37;
+  border-radius: 50%;
+  position: fixed;
+  pointer-events: none;
+  z-index: 99999;
+  box-shadow: 0 0 15px #d4af37, 0 0 30px #d4af37;
+}
+
+.custom-cursor-follower {
+  width: 44px;
+  height: 44px;
+  border: 2px solid rgba(212, 175, 55, 0.6);
+  border-radius: 50%;
+  position: fixed;
+  pointer-events: none;
+  z-index: 99998;
+  box-shadow: inset 0 0 10px rgba(212, 175, 55, 0.3), 0 0 20px rgba(212, 175, 55, 0.2);
+}
+
+/* Sci-fi HUD Elements */
+.hud-corner {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  border-color: rgba(212, 175, 55, 0.3);
+  pointer-events: none;
+}
+
+.hud-corner-tl { top: 0; left: 0; border-top: 1px solid; border-left: 1px solid; border-top-left-radius: 4px; }
+.hud-corner-tr { top: 0; right: 0; border-top: 1px solid; border-right: 1px solid; border-top-right-radius: 4px; }
+.hud-corner-bl { bottom: 0; left: 0; border-bottom: 1px solid; border-left: 1px solid; border-bottom-left-radius: 4px; }
+.hud-corner-br { bottom: 0; right: 0; border-bottom: 1px solid; border-right: 1px solid; border-bottom-right-radius: 4px; }
+
+@keyframes scan {
+  0% { transform: translateY(-100%); opacity: 0; }
+  50% { opacity: 0.5; }
+  100% { transform: translateY(1000%); opacity: 0; }
+}
+
+.scan-line {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(to right, transparent, rgba(212, 175, 55, 0.1), transparent);
+  z-index: 10000;
+  pointer-events: none;
+  animation: scan 8s linear infinite;
+}

@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: ledger
+    // Fields:
+    //   - timestamp: string (ISO 8601)
+    //   - type: string (SYSTEM, AGENT, MARKET, TRADE)
+    //   - data: map (payload)
+    //   - previousHash: string
+    //   - hash: string
+    //   - index: int
+    //
+    // Collection: config
+    // Fields:
+    //   - isKillSwitchActive: bool
+    //   - maxTradesPerDay: int
+    //   - lastHash: string
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+             (request.auth.token.email == "chijobha@gmail.com" && request.auth.token.email_verified == true);
+    }
+
+    // Ledger is Append-Only
+    match /ledger/{blockId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated(); 
+      allow update, delete: if false; // Immutable
+    }
+
+    // Config is Read/Write for Admins
+    match /config/{configId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

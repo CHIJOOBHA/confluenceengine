@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "AuditBlock": {
+      "title": "AuditBlock",
+      "description": "A cryptographic block representing a decision or state change in the engine.",
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "format": "date-time" },
+        "type": { "type": "string", "enum": ["SYSTEM", "AGENT", "MARKET", "TRADE"] },
+        "data": { "type": "object" },
+        "previousHash": { "type": "string" },
+        "hash": { "type": "string" },
+        "index": { "type": "number" }
+      },
+      "required": ["timestamp", "type", "data", "previousHash", "hash", "index"]
+    },
+    "EngineConfig": {
+      "title": "EngineConfig",
+      "description": "Global configuration for the engine.",
+      "type": "object",
+      "properties": {
+        "isKillSwitchActive": { "type": "boolean" },
+        "maxTradesPerDay": { "type": "number" },
+        "lastHash": { "type": "string" },
+        "brokerApiKey": { "type": "string" },
+        "brokerAccessToken": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/ledger": {
+      "schema": "AuditBlock",
+      "description": "The immutable cryptographic ledger of all engine decisions."
+    },
+    "/config": {
+      "schema": "EngineConfig",
+      "description": "Engine configuration and state tracking."
+    }
+  }
+}
