@@ -35,6 +35,28 @@ export interface LogEntry {
 
 export type MarketStrategy = "BREAKOUT" | "MEAN_REVERSION" | "WAIT";
 
+export interface Trade {
+  time: string;
+  symbol: string;
+  type: "BUY" | "SELL";
+  qty: number;
+  price: number;
+  status: string;
+  pnl?: number;
+}
+
+export interface Lesson {
+  index: number;
+  timestamp: string;
+  tradeId: string;
+  outcome: "WIN" | "LOSS";
+  reasonForLoss: string;
+  agentCorrection: string;
+  confidence: number;
+  previousHash: string;
+  hash: string;
+}
+
 export interface EngineState {
   currentTime: string;
   isMarketOpen: boolean;
@@ -47,6 +69,8 @@ export interface EngineState {
   fibLevels: any; // Using any for simplicity in types, but kept as FibonacciLevels in core
   lastHash: string;
   logs: LogEntry[];
+  trades: Trade[];
+  lessons: Lesson[];
   isSimulating: boolean;
   isBrokerConnected: boolean;
   isSafetyOn: boolean;

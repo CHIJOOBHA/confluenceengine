@@ -25,6 +25,23 @@
         "brokerApiKey": { "type": "string" },
         "brokerAccessToken": { "type": "string" }
       }
+    },
+    "Lesson": {
+      "title": "Lesson",
+      "description": "A cryptographically chained learning entry derived from trade outcomes.",
+      "type": "object",
+      "properties": {
+        "index": { "type": "number" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "tradeId": { "type": "string" },
+        "outcome": { "type": "string", "enum": ["WIN", "LOSS"] },
+        "reasonForLoss": { "type": "string" },
+        "agentCorrection": { "type": "string" },
+        "confidence": { "type": "number" },
+        "previousHash": { "type": "string" },
+        "hash": { "type": "string" }
+      },
+      "required": ["index", "timestamp", "tradeId", "outcome", "reasonForLoss", "previousHash", "hash"]
     }
   },
   "firestore": {
@@ -35,6 +52,26 @@
     "/config": {
       "schema": "EngineConfig",
       "description": "Engine configuration and state tracking."
+    },
+    "/lessons": {
+      "schema": "Lesson",
+      "description": "Stored cognitive improvements for future AI inference."
+    },
+    "/state": {
+      "schema": {
+        "title": "EngineStatePersistence",
+        "description": "Snapshots of AI interpretation to prevent empty dashboard states.",
+        "type": "object",
+        "properties": {
+          "agentReports": { "type": "array" },
+          "bfsiReport": { "type": "object" },
+          "apexSignals": { "type": "array" },
+          "marketBiasScore": { "type": "number" },
+          "consensus": { "type": "string" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "description": "Resilient cache of intelligence state."
     }
   }
 }

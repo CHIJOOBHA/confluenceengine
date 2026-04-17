@@ -59,16 +59,16 @@
     --secondary: #064e3b;
     --secondary-foreground: #fdfcf0;
     
-    --muted: rgba(253, 252, 240, 0.1);
-    --muted-foreground: rgba(253, 252, 240, 0.6);
+    --muted: rgba(253, 252, 240, 0.2);
+    --muted-foreground: rgba(253, 252, 240, 0.85);
     
-    --accent: rgba(212, 175, 55, 0.15);
-    --accent-foreground: #d4af37;
+    --accent: rgba(212, 175, 55, 0.25);
+    --accent-foreground: #e5c05c;
     
     --destructive: #7f1d1d;
     --destructive-foreground: #fdfcf0;
     
-    --border: rgba(212, 175, 55, 0.1);
+    --border: rgba(212, 175, 55, 0.25);
     --input: rgba(212, 175, 55, 0.05);
     --ring: #d4af37;
     
@@ -97,8 +97,8 @@
 
   h1, h2, h3, .font-serif {
     font-family: var(--font-serif);
-    letter-spacing: -0.02em;
-    text-shadow: 0 0 20px rgba(212, 175, 55, 0.2);
+    letter-spacing: -0.01em;
+    text-shadow: 0 0 10px rgba(212, 175, 55, 0.1);
   }
 }
 
@@ -167,4 +167,42 @@
   z-index: 10000;
   pointer-events: none;
   animation: scan 8s linear infinite;
+}
+
+/* Neon Interaction Principle */
+.neon-box-gold {
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.1), inset 0 0 8px rgba(212, 175, 55, 0.05);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+}
+.neon-box-gold:hover {
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.2), inset 0 0 12px rgba(212, 175, 55, 0.1);
+  border-color: rgba(212, 175, 55, 0.5);
+}
+
+.neon-box-emerald {
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15), inset 0 0 8px rgba(16, 185, 129, 0.05);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.neon-box-emerald:hover {
+  box-shadow: 0 0 20px rgba(16, 185, 129, 0.25), inset 0 0 12px rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.neon-box-red {
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.15), inset 0 0 8px rgba(239, 68, 68, 0.05);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.neon-box-red:hover {
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.25), inset 0 0 12px rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+.neon-text-emerald {
+  color: #10b981;
+  text-shadow: 0 0 10px rgba(16, 185, 129, 0.6), 0 0 20px rgba(16, 185, 129, 0.2);
+}
+
+.neon-text-gold {
+  color: #d4af37;
+  text-shadow: 0 0 10px rgba(212, 175, 55, 0.6), 0 0 20px rgba(212, 175, 55, 0.2);
 }

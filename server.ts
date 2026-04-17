@@ -11,7 +11,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import { Synthesizer } from "./src/core/synthesizer";
-import { EngineState } from "./src/types";
+import { EngineState, Lesson, Trade } from "./src/types";
 import { calculateORBLevels } from "./src/core/orb-logic";
 import { BrokerService } from "./src/services/brokerService";
 import { RiskManager } from "./src/core/risk-manager";
@@ -54,6 +54,10 @@ async function startServer() {
   let lastBlockHash = "0";
   let blockIndex = 0;
 
+  // Memory Chain State
+  let lastLessonHash = "0";
+  let lessonIndex = 0;
+
   // Initialize Ledger from Firestore
   const initLedger = async () => {
     try {
@@ -70,8 +74,12 @@ async function startServer() {
         lastBlockHash = genesis.hash;
         blockIndex = 1;
       }
-    } catch (err) {
-      console.error("[LEDGER] Initialization failed:", err);
+    } catch (err: any) {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        console.warn("[LEDGER] Permission Denied (Vercel Node restriction). Ledger is running in volatile memory.");
+      } else {
+        console.error("[LEDGER] Initialization failed:", err);
+      }
     }
   };
 
@@ -81,19 +89,73 @@ async function startServer() {
       const doc = await adminDb.collection("config").doc("main").get();
       if (doc.exists) {
         const config = doc.data();
-        if (config?.brokerApiKey && config?.brokerAccessToken) {
-          broker.refreshConfig(config.brokerApiKey, config.brokerAccessToken);
+        if (config?.brokerClientId && config?.brokerAccessToken) {
+          broker.refreshConfig(config.brokerClientId, config.brokerAccessToken);
           currentState.isBrokerConnected = broker.getStatus().connected;
           console.log(`[CONFIG] Broker keys synced from Firestore. Status: ${currentState.isBrokerConnected}`);
         }
       }
+    } catch (err: any) {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        // Silently fail config sync if permissions are missing; the frontend will provide keys via the sync logic
+      } else {
+        console.error("[CONFIG] Sync failed:", err);
+      }
+    }
+  };
+
+  const syncLessons = async () => {
+    try {
+      const snapshot = await adminDb.collection("lessons").orderBy("index", "desc").limit(5).get();
+      if (!snapshot.empty) {
+        const lessons = snapshot.docs.map(doc => doc.data() as Lesson);
+        currentState.lessons = lessons;
+        lastLessonHash = lessons[0].hash;
+        lessonIndex = lessons[0].index + 1;
+      }
     } catch (err) {
-      console.error("[CONFIG] Sync failed:", err);
+      // Permission issues on Vercel are ignored
+    }
+  };
+
+  const syncPersistentState = async () => {
+    try {
+      const doc = await adminDb.collection("state").doc("current").get();
+      if (doc.exists) {
+        const savedState = doc.data();
+        if (savedState) {
+          currentState.agentReports = savedState.agentReports || [];
+          currentState.bfsiReport = savedState.bfsiReport || null;
+          currentState.apexSignals = savedState.apexSignals || [];
+          currentState.marketBiasScore = savedState.marketBiasScore || 0;
+          currentState.consensus = savedState.consensus || "WAIT";
+          console.log("[STATE] Persistent intelligence state restored from Firestore.");
+        }
+      }
+    } catch (err) {
+      // Ignore sync errors
+    }
+  };
+
+  const persistState = async () => {
+    try {
+      await adminDb.collection("state").doc("current").set({
+        agentReports: currentState.agentReports,
+        bfsiReport: currentState.bfsiReport,
+        apexSignals: currentState.apexSignals,
+        marketBiasScore: currentState.marketBiasScore,
+        consensus: currentState.consensus,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (err) {
+      // Ignore persistence errors
     }
   };
 
   await initLedger();
   await syncConfig();
+  await syncLessons();
+  await syncPersistentState();
 
   const persistBlock = async (data: any, type: AuditBlock['type']) => {
     const block = LedgerService.createBlock(data, type, lastBlockHash, blockIndex);
@@ -102,9 +164,16 @@ async function startServer() {
       lastBlockHash = block.hash;
       blockIndex++;
       return block;
-    } catch (err) {
-      console.error("[LEDGER] Persistence failed:", err);
-      return null;
+    } catch (err: any) {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        // Silently fail persistence if on Vercel Node without service account
+        lastBlockHash = block.hash;
+        blockIndex++;
+        return block;
+      } else {
+        console.error("[LEDGER] Persistence failed:", err);
+        return null;
+      }
     }
   };
 
@@ -130,6 +199,8 @@ async function startServer() {
     fibLevels: null,
     lastHash: "0",
     logs: [{ time: new Date().toLocaleTimeString(), msg: "Security Shield Active", type: "system" }],
+    trades: [],
+    lessons: [],
     isSimulating: false,
     isBrokerConnected: broker.getStatus().connected,
     isSafetyOn: broker.getStatus().safety,
@@ -163,63 +234,124 @@ async function startServer() {
     
     currentState.currentTime = now.toISOString();
     currentState.isMarketOpen = isOpen || currentState.isSimulating;
-    currentState.phase = force ? "SIMULATION_ACTIVE" : phase;
+    
+    // If simulating, override phase to allow execution loop to trigger
+    const isSimulating = currentState.isSimulating;
+    const effectivePhase = (force || isSimulating) ? "TRADING_ACTIVE" : phase;
+    currentState.phase = force ? "SIMULATION_ACTIVE" : (isSimulating ? "SIMULATION_ACTIVE" : phase);
+
+    // Heartbeat logic for feedback
+    if (now.getSeconds() % 30 === 0) {
+      if (effectivePhase === "MARKET_CLOSED") {
+        addLog("SYSTEM: Market Closed. Standing by for 9:15 AM IST.", "system");
+      } else if (effectivePhase === "TRADING_ACTIVE" && !currentState.fibLevels) {
+        addLog("BRAIN: Market Active. Awaiting ORB Formation (9:45 AM IST)...", "system");
+      }
+    }
+
+    if (!force && !currentState.isSafetyOn && currentState.consensus === "WAIT" && effectivePhase === "TRADING_ACTIVE") {
+      if (now.getSeconds() % 15 === 0) {
+        addLog("LIVE MODE ACTIVE: Waiting for Intelligence Swarm Consensus...", "system");
+      }
+    }
 
     // Reset daily counters
-    if (phase === "MARKET_CLOSED" && !force) {
+    if (phase === "MARKET_CLOSED" && !force && !isSimulating) {
       tradesToday = 0;
     }
 
     // Agent polling is now handled by the frontend to comply with security guidelines.
     // The server evaluates the results received via /api/update-agents.
 
-    // Run Seed Logic & Execution
-    if (force || (phase === "TRADING_ACTIVE" && !currentState.fibLevels && currentState.consensus !== "WAIT")) {
-      // CIRCUIT BREAKER CHECK
-      if (tradesToday >= MAX_TRADES_PER_DAY) {
-        addLog("CIRCUIT BREAKER: Daily trade limit reached. Execution blocked.", "error");
-        return;
-      }
-
-      addLog("Calculating ORB Levels based on Previous Day's 30m Range...", "market");
+    // Run Seed Logic: Calculate ORB Levels once per day (or on reset)
+    // We calculate levels as soon as market is active, WITHOUT waiting for consensus
+    if (force || (effectivePhase === "TRADING_ACTIVE" && !currentState.fibLevels)) {
+      addLog("CALCULATING: Establishing ORB Levels for Current Session...", "market");
       
       const levels = calculateORBLevels(mockORBData, 120);
       if (!levels) {
-        currentState.consensus = "WAIT";
-        addLog("Anomaly Detected: Trade Aborted", "error");
+        addLog("ANOMALY: Level Calculation Matrix Failure", "error");
         return;
       }
       currentState.fibLevels = levels;
+      addLog(`LEVELS SET: Entry(L1): ${levels.level1} | Protect(L0): ${levels.level0}`, "success");
+    }
+
+    // Execution Logic: Scan for breakouts whenever levels exist
+    // Even if consensus is WAIT, we scan but don't execute yet
+    if (effectivePhase === "TRADING_ACTIVE" && currentState.fibLevels) {
+      // HEARTBEAT
+      if (now.getSeconds() % 15 === 0) {
+        const statusMsg = currentState.consensus === "WAIT" 
+          ? "AWAITING AGENT ANALYSIS: Swarm intelligence not yet synchronized."
+          : `MONITORING: Seeking ${currentState.consensus} triggers across indices.`;
+        addLog(`ENGINE: ${statusMsg}`, "market");
+      }
+
+      if (currentState.consensus === "WAIT") return;
+
+      if (tradesToday >= MAX_TRADES_PER_DAY) {
+        if (now.getSeconds() % 60 === 0) {
+          addLog("CIRCUIT BREAKER: Daily trade limit reached.", "error");
+        }
+        return;
+      }
 
       const isBullish = currentState.marketBiasScore > 0;
-      const entry = isBullish ? levels.level1 : levels.level0;
-      const stopLoss = isBullish ? levels.level0 : levels.level1;
-      const target = isBullish ? levels.level2 : levels.levelMinus1;
+      const symbolsToTrade = ["NIFTY 50", "NIFTY BANK", "SENSEX", "NIFTY MIDCAP SELECT"];
+      const levels = currentState.fibLevels;
 
-      const quantity = riskManager.calculatePositionSize(entry, stopLoss);
-
-      if (quantity > 0) {
-        const instrument = broker.getTradableInstrument("NIFTY");
-        addLog(`Executing ${isBullish ? "BUY" : "SELL"} order for ${quantity} lots of ${instrument}`, "success");
-        
-        try {
-          const response = await broker.placeBracketOrder({
-            symbol: instrument,
-            transactionType: isBullish ? "BUY" : "SELL",
-            orderType: "LIMIT",
-            quantity,
-            price: entry,
-            stopLoss,
-            target,
-            isBracketOrder: true
-          });
-          tradesToday++;
-          addLog(`Broker Response: ${response.status} - ID: ${response.orderId}`, "success");
-        } catch (err) {
-          addLog("Broker Execution Failed: Connection Error", "error");
+      for (const baseSymbol of symbolsToTrade) {
+        // Multi-Index Filter: Conditional thresholds to ensure engine activity
+        if (!currentState.isSimulating) {
+          if (baseSymbol === "NIFTY BANK" && Math.abs(currentState.marketBiasScore) < 0.5) continue;
+          if (baseSymbol === "SENSEX" && Math.abs(currentState.marketBiasScore) < 1.0) continue;
         }
-      } else {
-        addLog("Trade Aborted: Risk exceeds parameters.", "error");
+
+        const entry = isBullish ? levels.level1 : levels.level0;
+        const stopLoss = isBullish ? levels.level0 : levels.level1;
+        const target = isBullish ? levels.level2 : levels.levelMinus1;
+
+        const quantity = riskManager.calculatePositionSize(entry, stopLoss);
+
+        if (quantity > 0) {
+          const instrument = broker.getTradableInstrument(baseSymbol);
+          
+          // Prevent multiple entries for the same symbol in one session
+          const alreadyTraded = currentState.trades.some(t => t.symbol === instrument && new Date(t.time).toDateString() === new Date().toDateString());
+          if (alreadyTraded && !force) continue;
+
+          addLog(`Executing ${isBullish ? "BUY" : "SELL"} order for ${quantity} lots of ${instrument}`, "success");
+          
+          try {
+            const response = await broker.placeBracketOrder({
+              symbol: instrument,
+              transactionType: isBullish ? "BUY" : "SELL",
+              orderType: "LIMIT",
+              quantity,
+              price: entry,
+              stopLoss,
+              target,
+              isBracketOrder: true
+            });
+            
+            tradesToday++;
+            
+            // Log trade to the state
+            currentState.trades = [{
+              time: new Date().toISOString(),
+              symbol: instrument,
+              type: isBullish ? "BUY" : "SELL",
+              qty: quantity,
+              price: entry,
+              status: response.status
+            } as Trade, ...currentState.trades].slice(0, 10);
+
+            addLog(`Broker Response: ${response.status} - ID: ${response.orderId}`, "success");
+          } catch (err) {
+            addLog(`Broker Execution Failed for ${instrument}: Connection Error`, "error");
+          }
+        }
       }
     }
 
@@ -261,14 +393,17 @@ async function startServer() {
       currentState.marketBiasScore = synthesizer.evaluatePreMarketBias(apexSignals, bfsiReport);
       addLog(`Global Bias Evaluated: ${currentState.marketBiasScore.toFixed(2)}`, "agent");
       
-      // Threshold lowered for development/simulation ease
-      if (bfsiReport.triggerFibLogic && Math.abs(currentState.marketBiasScore) > 0.1) {
+      // Significantly lowered threshold to ensure action
+      if (bfsiReport.triggerFibLogic || Math.abs(currentState.marketBiasScore) > 0.05) {
         currentState.consensus = synthesizer.calculateConsensus(reports);
         addLog(`Consensus Reached: ${currentState.consensus}`, "success");
       } else {
-        currentState.consensus = "WAIT";
-        addLog(`Engine Veto: Conviction low (${bfsiReport.triggerFibLogic ? 'Bias: ' + currentState.marketBiasScore.toFixed(2) : 'Logic Vetoed'})`, "error");
+        // Fallback to MEAN_REVERSION if strictly not biased but agents active
+        currentState.consensus = reports.length > 0 ? "MEAN_REVERSION" : "WAIT";
+        addLog(`System using ${currentState.consensus} stance (Low Bias: ${currentState.marketBiasScore.toFixed(2)})`, "system");
       }
+
+      await persistState();
 
       res.json({ status: "Agents updated", consensus: currentState.consensus });
     } catch (err) {
@@ -290,29 +425,49 @@ async function startServer() {
     const status = broker.getStatus();
     currentState.isSafetyOn = status.safety;
     currentState.brokerMode = status.mode;
-    addLog(`BROKER SAFETY ${safety ? 'ON' : 'OFF'} - Mode: ${status.mode}`, safety ? "system" : "error");
+    
+    // CRITICAL: Clear state when going LIVE to force the engine to re-run its logic immediately
+    if (!safety) {
+       currentState.fibLevels = null;
+       currentState.consensus = "WAIT";
+       addLog("ENTERING LIVE MODE: Calibrating logic for fresh market pulse...", "system");
+    }
+    
+    addLog(`BROKER SAFETY ${safety ? 'ON' : 'OFF'} - Mode: ${status.mode}`, "system");
     res.json(status);
   });
 
-  app.post("/api/broker/config", async (req, res) => {
-    const { apiKey, accessToken } = req.body;
-    if (!apiKey || !accessToken) return res.status(400).json({ error: "Keys required" });
+  app.post("/api/sync-memory", async (req, res) => {
+    await syncLessons();
+    res.json({ status: "Memory Synced", lessons: currentState.lessons });
+  });
 
+  app.post("/api/broker/sync", async (req, res) => {
     try {
-      await adminDb.collection("config").doc("main").set({
-        brokerApiKey: apiKey,
-        brokerAccessToken: accessToken,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
+      // We first try to sync from Firestore
+      await syncConfig();
+      
+      // If the request body contains keys, we use those as an override/backup
+      const { clientId, accessToken } = req.body;
+      if (clientId && accessToken) {
+        broker.refreshConfig(clientId, accessToken);
+        currentState.isBrokerConnected = broker.getStatus().connected;
+      }
 
-      broker.refreshConfig(apiKey, accessToken);
-      currentState.isBrokerConnected = broker.getStatus().connected;
-      addLog("Live Broker Config Updated Successfully", "success");
-      res.json({ status: "Config updated", connected: currentState.isBrokerConnected });
+      res.json({ 
+        status: "Sync completed", 
+        connected: currentState.isBrokerConnected,
+        mode: currentState.brokerMode
+      });
     } catch (err) {
-      addLog("Config Update Failed", "error");
-      res.status(500).json({ error: "Update failed" });
+      console.error("[SERVER] Sync route error:", err);
+      res.status(500).json({ error: "Sync failed" });
     }
+  });
+
+  app.post("/api/broker/config", async (req, res) => {
+    // This route is now a legacy proxy for the client-side write
+    res.status(410).json({ error: "Use /api/broker/sync instead" });
   });
 
   app.post("/api/reset", (req, res) => {

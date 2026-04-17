@@ -10,18 +10,18 @@ import { ShieldCheck, Key, Lock, Globe } from "lucide-react";
 import { motion } from "motion/react";
 
 interface BrokerConnectProps {
-  onConnect: (apiKey: string, accessToken: string) => void;
+  onConnect: (clientId: string, accessToken: string) => void;
   isConnecting: boolean;
 }
 
 export function BrokerConnect({ onConnect, isConnecting }: BrokerConnectProps) {
-  const [apiKey, setApiKey] = useState("");
+  const [clientId, setClientId] = useState("");
   const [accessToken, setAccessToken] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (apiKey && accessToken) {
-      onConnect(apiKey, accessToken);
+    if (clientId && accessToken) {
+      onConnect(clientId, accessToken);
     }
   };
 
@@ -47,25 +47,25 @@ export function BrokerConnect({ onConnect, isConnecting }: BrokerConnectProps) {
           <form onSubmit={handleSubmit} className="space-y-phi-xl">
             <div className="space-y-3">
               <label className="text-[10px] font-mono text-gold/40 uppercase tracking-[0.3em] flex items-center gap-2">
-                <Key className="w-3 h-3" /> Broker API Key
+                <Key className="w-3 h-3" /> Dhan Client ID
               </label>
               <input 
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Ex: kite_api_12345..."
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                placeholder="Ex: 11002233..."
                 className="w-full bg-obsidian/40 border border-gold/10 text-ivory placeholder:text-gold/10 h-14 px-phi-lg rounded-2xl focus:outline-none focus:border-gold/40 transition-all font-mono text-sm"
                 required
               />
             </div>
             <div className="space-y-3">
               <label className="text-[10px] font-mono text-gold/40 uppercase tracking-[0.3em] flex items-center gap-2">
-                <Lock className="w-3 h-3" /> API Secret / Token
+                <Lock className="w-3 h-3" /> Access Token
               </label>
               <input 
                 value={accessToken}
                 onChange={(e) => setAccessToken(e.target.value)}
                 type="password"
-                placeholder="••••••••••••••••"
+                placeholder="Your permanent access token"
                 className="w-full bg-obsidian/40 border border-gold/10 text-ivory placeholder:text-gold/10 h-14 px-phi-lg rounded-2xl focus:outline-none focus:border-gold/40 transition-all font-mono text-sm"
                 required
               />

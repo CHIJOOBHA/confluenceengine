@@ -67,7 +67,6 @@ export const LoginGate = ({ onLogin }: { onLogin: (user: any) => void }) => {
             layout
             initial={false}
             animate={{
-              x: step === 'initial' ? 0 : SYMBOL_OFFSET,
               scale: step === 'initial' ? PHI : 1,
               rotate: step === 'initial' ? 0 : -90,
             }}
@@ -77,20 +76,6 @@ export const LoginGate = ({ onLogin }: { onLogin: (user: any) => void }) => {
           >
             <WealthSymbol className="w-24 h-24" />
           </motion.div>
-
-          {/* Text - Moving to the right */}
-          <AnimatePresence>
-            {step !== 'initial' && (
-              <motion.div
-                initial={{ opacity: 0, x: -50 }}
-                animate={{ opacity: 1, x: TEXT_OFFSET }}
-                transition={{ duration: 1, ease: "easeOut" }}
-                className="absolute font-serif text-3xl tracking-[0.4em] uppercase italic text-gold whitespace-nowrap z-10 flex items-center"
-              >
-                Confluence Engine
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
 
         {/* Login Form - Appears below */}
@@ -113,7 +98,7 @@ export const LoginGate = ({ onLogin }: { onLogin: (user: any) => void }) => {
                   <motion.div 
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="text-[10px] font-mono text-red-400 tracking-widest uppercase border border-red-500/20 bg-red-500/5 p-2"
+                    className="text-[10px] font-mono text-red-500 tracking-widest uppercase neon-box-red bg-red-500/5 p-4 rounded-sm"
                   >
                     {error}
                   </motion.div>
@@ -122,7 +107,7 @@ export const LoginGate = ({ onLogin }: { onLogin: (user: any) => void }) => {
                 <button
                   onClick={handleGoogleLogin}
                   disabled={loading}
-                  className="w-full py-4 bg-gold/10 border border-gold/30 text-gold text-[10px] font-mono tracking-[0.3em] hover:bg-gold/20 active:scale-95 transition-all uppercase flex items-center justify-center gap-3 disabled:opacity-50"
+                  className="w-full py-4 neon-box-gold bg-gold/5 text-gold text-[10px] font-mono tracking-[0.3em] hover:bg-gold/10 active:scale-95 transition-all uppercase flex items-center justify-center gap-3 disabled:opacity-50"
                 >
                   {loading ? (
                     <span className="animate-pulse">Verifying Identity...</span>

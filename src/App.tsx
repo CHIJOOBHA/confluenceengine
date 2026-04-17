@@ -4,14 +4,15 @@
  * All rights reserved.
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Activity, Brain, TrendingUp, Clock, Hash, AlertTriangle, Sparkles } from "lucide-react";
+import { Activity, Brain, TrendingUp, Clock, Hash, AlertTriangle, Sparkles, ReceiptText, Microscope, Zap, RefreshCw, Database } from "lucide-react";
 import { motion, useScroll, useSpring, AnimatePresence } from "motion/react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Area, AreaChart } from "recharts";
 import { EngineState, LogEntry } from "./types";
@@ -19,8 +20,10 @@ import { WealthSymbol } from "./components/WealthSymbol";
 import { LoginGate } from "./components/LoginGate";
 import { BrokerConnect } from "./components/BrokerConnect";
 import { CustomCursor } from "./components/CustomCursor";
-import { auth } from "./lib/firebase";
+import { auth, db } from "./lib/firebase";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
+import { doc, setDoc } from "firebase/firestore";
+import { MemoryService } from "./services/memoryService";
 import { getAgentSwarmReport, runBFSIAgency, runApexPods, runEventAgent } from "./services/geminiFrontendService";
 
 export default function App() {
@@ -29,6 +32,7 @@ export default function App() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [authChecking, setAuthChecking] = useState(true);
+  const brokerKeysRef = useRef<{ clientId: string; accessToken: string } | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -51,9 +55,19 @@ export default function App() {
           const text = await res.text();
           throw new Error(`Server responded with ${res.status}: ${text.slice(0, 100)}`);
         }
-        const data = await res.json();
+        const data: EngineState = await res.json();
         setState(data);
         setLoading(false);
+
+        // Auto-Heal: If frontend has keys but server reports disconnected, re-sync
+        if (brokerKeysRef.current && !data.isBrokerConnected) {
+          console.log("[FRONTEND] Auto-Healing Broker Connection...");
+          fetch("/api/broker/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(brokerKeysRef.current)
+          }).catch(err => console.error("Auto-heal failed:", err));
+        }
       } catch (err) {
         console.error("Failed to fetch engine state:", err);
       }
@@ -64,51 +78,74 @@ export default function App() {
     return () => clearInterval(interval);
   }, [user]);
 
+  const [lastAgentRun, setLastAgentRun] = useState<number>(0);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const isAgentRunningRef = useRef(false);
+
+  const runAgents = useCallback(async () => {
+    if (isAgentRunningRef.current) return;
+    isAgentRunningRef.current = true;
+    setIsAnalyzing(true);
+    
+    console.log("[FRONTEND] Triggering Agent Swarm...");
+    setLastAgentRun(Date.now());
+    try {
+      const [reports, bfsiReport, apexSignals, eventReport] = await Promise.all([
+        getAgentSwarmReport(),
+        runBFSIAgency(),
+        runApexPods(),
+        runEventAgent()
+      ]);
+
+      await fetch("/api/update-agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reports, bfsiReport, apexSignals, eventReport })
+      });
+    } catch (err) {
+      console.error("[FRONTEND] Agent execution failed:", err);
+    } finally {
+      isAgentRunningRef.current = false;
+      setIsAnalyzing(false);
+    }
+  }, []);
+
   // Agent Polling Logic (Frontend-driven to comply with security guidelines)
   useEffect(() => {
     if (!user || !state) return;
 
-    const runAgents = async () => {
-      console.log("[FRONTEND] Triggering Agent Swarm...");
-      try {
-        const [reports, bfsiReport, apexSignals, eventReport] = await Promise.all([
-          getAgentSwarmReport(),
-          runBFSIAgency(),
-          runApexPods(),
-          runEventAgent()
-        ]);
-
-        await fetch("/api/update-agents", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reports, bfsiReport, apexSignals, eventReport })
-        });
-      } catch (err) {
-        console.error("[FRONTEND] Agent execution failed:", err);
-      }
-    };
-
-    // Check if we should run agents
-    const now = new Date();
+    const now = Date.now();
     const istOffset = 5.5 * 60 * 60 * 1000;
-    const istDate = new Date(now.getTime() + istOffset);
+    const istDate = new Date(now + istOffset);
     const hours = istDate.getUTCHours();
     const minutes = istDate.getUTCMinutes();
+    const timeInMins = hours * 60 + minutes;
 
-    const isPreMarketTime = hours === 8 && minutes === 30;
-    const isPostMarketTime = hours === 16 && minutes === 30;
+    // 7:00 AM to 4:00 PM IST
+    const isWorkingHours = timeInMins >= 420 && timeInMins < 960;
+    
+    // Refresh interval: 2 minutes for high-frequency market analysis
+    const REFRESH_INTERVAL = 2 * 60 * 1000;
+    const timeSinceLastRun = now - lastAgentRun;
+    const needsRefresh = timeSinceLastRun > REFRESH_INTERVAL;
+    const hasNeverRun = lastAgentRun === 0;
 
-    // Run agents if it's the right time and we don't have reports yet, or if simulation is active
-    if ((isPreMarketTime || isPostMarketTime) && state.agentReports.length === 0) {
+    // Guard: Only trigger if we have never run OR if enough time has passed
+    // This prevents infinite loops when state.agentReports.length is 0
+    if (isWorkingHours && ((state.agentReports.length === 0 && hasNeverRun) || needsRefresh)) {
       runAgents();
     }
     
-    // If simulation just started, trigger agents once
-    if (state.isSimulating && state.agentReports.length === 0) {
-      runAgents();
-    }
+    // Polling interval check every 30 seconds
+    const interval = setInterval(() => {
+      const currentTime = Date.now();
+      if (isWorkingHours && (currentTime - lastAgentRun) > REFRESH_INTERVAL) {
+        runAgents();
+      }
+    }, 30000);
 
-  }, [user, state?.isSimulating, state?.agentReports.length]);
+    return () => clearInterval(interval);
+  }, [user, state?.isSimulating, state?.agentReports.length, lastAgentRun, runAgents]);
 
   const handleSimulate = async () => {
     try {
@@ -160,6 +197,23 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setState({ ...state, isSafetyOn: data.safety, brokerMode: data.mode });
+        
+        // If going LIVE, trigger a fresh swarm to ensure the engine has a bias
+        if (!newSafety) {
+          console.log("[FRONTEND] Entering LIVE Mode: Triggering Intelligence Swarm...");
+          const [reports, bfsiReport, apexSignals, eventReport] = await Promise.all([
+            getAgentSwarmReport(),
+            runBFSIAgency(),
+            runApexPods(),
+            runEventAgent()
+          ]);
+
+          await fetch("/api/update-agents", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reports, bfsiReport, apexSignals, eventReport })
+          });
+        }
       }
     } catch (err) {
       console.error("Safety toggle failed", err);
@@ -171,20 +225,65 @@ export default function App() {
     setUser(null);
   };
 
-  const handleConnectBroker = async (apiKey: string, accessToken: string) => {
-    setIsConnecting(true);
+  const handleTeachAgent = async (tradeId: string) => {
+    const reason = window.prompt("Why did this trade result in a loss?");
+    if (!reason) return;
+    
+    const correction = window.prompt("What should the agent do differently next time? (e.g., 'Wait for RSI confirmation', 'Check news first')");
+    if (!correction) return;
+
     try {
-      const res = await fetch("/api/broker/config", {
+      const lastLesson = state.lessons[0];
+      const previousHash = lastLesson ? lastLesson.hash : "0";
+      const index = lastLesson ? lastLesson.index + 1 : 0;
+
+      await MemoryService.recordLesson({
+        tradeId,
+        outcome: "LOSS",
+        reasonForLoss: reason,
+        agentCorrection: correction,
+        confidence: 0.9
+      }, previousHash, index);
+      
+      alert(`Proof of Learning Block #${index} Generated. AI Neural Weights Updated.`);
+      // Trigger a server sync to update the state
+      await fetch("/api/sync-memory", { method: "POST" });
+    } catch (err) {
+      console.error("Failed to teach agent:", err);
+    }
+  };
+
+  const handleConnectBroker = async (clientId: string, accessToken: string) => {
+    setIsConnecting(true);
+    brokerKeysRef.current = { clientId, accessToken };
+    
+    try {
+      // 1. Save to Firestore DIRECTLY from frontend (bypassing server permission issues)
+      const configRef = doc(db, "config", "main");
+      await setDoc(configRef, {
+        brokerClientId: clientId,
+        brokerAccessToken: accessToken,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+
+      // 2. Tell the server to sync the new config
+      const res = await fetch("/api/broker/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiKey, accessToken })
+        body: JSON.stringify({ clientId, accessToken })
       });
+
       if (res.ok) {
         const data = await res.json();
         if (state) setState({ ...state, isBrokerConnected: data.connected });
+      } else {
+        const errData = await res.json();
+        console.error("Broker sync failed:", errData.error);
+        alert(`BROKER SYNC FAILED: ${errData.error || "Unknown Server Error"}`);
       }
     } catch (err) {
-      console.error("Connection failed", err);
+      console.error("Broker connection error:", err);
+      alert(`BROKER LINK ERROR: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsConnecting(false);
     }
@@ -267,14 +366,19 @@ export default function App() {
         <div className="hud-corner hud-corner-tr" />
         
         {/* Global Stats - Floating HUD Overlays */}
-        <div className="absolute top-phi-lg right-phi-xl flex flex-col items-end opacity-60 pointer-events-none">
-          <span className="text-[9px] text-gold/40 font-mono uppercase tracking-[0.3em]">Market Bias</span>
-          <span className={`text-2xl font-mono ${state.marketBiasScore > 0 ? "text-emerald" : state.marketBiasScore < 0 ? "text-gold" : "text-ivory/40"}`}>
-            {state.marketBiasScore > 0 ? "+" : ""}{state.marketBiasScore.toFixed(1)}
-          </span>
-          <div className="mt-4 flex flex-col items-end">
-            <span className="text-[9px] text-gold/40 font-mono uppercase tracking-[0.3em]">{state.isMarketOpen ? "Market Pulse" : "System pulse"}</span>
-            <span className={`text-xl font-mono ${state.isMarketOpen ? "text-emerald" : "text-gold"}`}>{new Date(state.currentTime).toLocaleTimeString()}</span>
+        <div className="absolute top-phi-lg right-phi-xl flex flex-col items-end gap-3 pointer-events-none">
+          <div className="neon-box-gold bg-obsidian/40 backdrop-blur-md p-2 px-4 rounded-sm flex flex-col items-end min-w-[120px]">
+            <span className="text-[9px] text-gold/60 font-mono uppercase tracking-[0.3em] mb-1">Market Bias</span>
+            <span className={`text-3xl font-mono ${state.marketBiasScore > 0 ? "neon-text-gold" : state.marketBiasScore < 0 ? "neon-text-emerald" : "text-gold/40"}`}>
+              {state.marketBiasScore > 0 ? "+" : ""}{state.marketBiasScore.toFixed(1)}
+            </span>
+          </div>
+
+          <div className="neon-box-emerald bg-obsidian/40 backdrop-blur-md p-2 px-4 rounded-sm flex flex-col items-end min-w-[120px]">
+            <span className="text-[9px] text-emerald/60 font-mono uppercase tracking-[0.3em] mb-1">{state.isMarketOpen ? "Market Pulse" : "System pulse"}</span>
+            <span className={`text-2xl font-mono neon-text-emerald`}>
+              {new Date(state.currentTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
           </div>
         </div>
 
@@ -322,46 +426,48 @@ export default function App() {
         <div className="mt-phi-xl flex flex-wrap items-center justify-center gap-phi-lg pt-phi-lg border-t border-gold/5 w-full max-w-5xl px-phi-lg">
           <button 
             onClick={handleSimulate}
-            className="px-4 py-2 text-[10px] font-mono border border-gold/20 text-gold/60 hover:bg-gold hover:text-obsidian hover:border-gold transition-all uppercase tracking-widest"
+            className="neon-box-gold px-4 py-2 text-[10px] font-mono text-gold/80 hover:bg-gold/5 transition-all uppercase tracking-widest rounded-sm"
           >
             RUN SIMULATION
           </button>
           <button 
             onClick={handleReset}
-            className="px-4 py-2 text-[10px] font-mono border border-gold/10 text-gold/30 hover:bg-gold/10 transition-all uppercase tracking-widest"
+            className="neon-box-gold px-4 py-2 text-[10px] font-mono text-gold/60 hover:bg-gold/5 transition-all uppercase tracking-widest rounded-sm"
           >
             RESET
           </button>
           <button 
             onClick={handleKill}
-            className="px-4 py-2 text-[10px] font-mono border border-red-500/20 text-red-500/40 hover:bg-red-500/10 hover:text-red-500 hover:border-red-500 transition-all uppercase tracking-widest"
+            className="neon-box-red px-4 py-2 text-[10px] font-mono text-red-500/80 hover:bg-red-500/5 transition-all uppercase tracking-widest rounded-sm"
           >
             KILL SWITCH
           </button>
           <div className="hidden md:block h-3 w-px bg-gold/10 mx-2" />
           <button 
             onClick={handleLogout}
-            className="px-4 py-2 text-[10px] font-mono border border-gold/10 text-gold/30 hover:bg-gold/10 transition-all uppercase tracking-widest"
+            className="neon-box-gold opacity-60 px-4 py-2 text-[10px] font-mono text-gold/60 hover:bg-gold/5 transition-all uppercase tracking-widest rounded-sm"
           >
             LOGOUT
           </button>
           {state.isBrokerConnected && (
             <button 
               onClick={handleToggleSafety}
-              className={`px-phi-xl py-2 text-[10px] font-mono border transition-all uppercase tracking-[0.2em] relative overflow-hidden group shadow-lg ${
+              className={`px-phi-xl py-2 text-[10px] font-mono transition-all uppercase tracking-[0.2em] relative overflow-hidden group rounded-sm ${
                 state.isSafetyOn 
-                  ? "border-emerald/30 text-emerald hover:bg-emerald/10" 
-                  : "border-red-500/50 text-red-500 bg-red-500/5 hover:bg-red-500/10 shadow-[0_0_30px_rgba(239,68,68,0.2)]"
+                  ? "neon-box-emerald text-emerald hover:bg-emerald/5" 
+                  : "neon-box-red text-red-500 bg-red-500/5 hover:bg-red-500/10"
               }`}
             >
-              <div className="absolute inset-0 bg-gold/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-500" />
+              <div className="absolute inset-0 bg-white/5 translate-x-[-100%] group-hover:translate-x-0 transition-transform duration-500" />
               <span className="relative z-10">{state.isSafetyOn ? "GO LIVE" : "EXIT LIVE"}</span>
             </button>
           )}
-          <Badge variant="outline" className={`ml-phi-lg px-phi-lg py-1 rounded-full border-gold/20 ${state.isMarketOpen ? "bg-emerald/10 text-emerald border-emerald/30 shadow-[0_0_15px_rgba(6,78,59,0.2)]" : "bg-gold/5 text-gold/60"}`}>
-            <Sparkles className="w-3 h-3 mr-2" />
-            {state.isMarketOpen ? "MARKET ACTIVE" : "MARKET DORMANT"}
-          </Badge>
+          <div className="neon-box-emerald bg-emerald/5 px-phi-lg py-1.5 rounded-full flex items-center shadow-lg transform scale-90 translate-y-0.5">
+            <Sparkles className="w-3 h-3 mr-2 text-emerald animate-pulse" />
+            <span className={`text-[9px] font-mono uppercase tracking-widest ${state.isMarketOpen ? "text-emerald" : "text-emerald/60"}`}>
+              {state.isMarketOpen ? "MARKET ACTIVE" : "MARKET DORMANT"}
+            </span>
+          </div>
         </div>
       </motion.header>
 
@@ -422,7 +528,7 @@ export default function App() {
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: i * 0.1, duration: 0.8 }}
               >
-                <Card className="bg-card backdrop-blur-xl border-gold/10 hover:border-gold/30 transition-colors duration-500 relative overflow-hidden group">
+                <Card className="bg-card backdrop-blur-xl border-gold/10 hover:border-gold/30 transition-colors duration-500 relative overflow-hidden group neon-box-gold">
                   <div className="hud-corner hud-corner-tl opacity-0 group-hover:opacity-100 transition-opacity" />
                   <div className="hud-corner hud-corner-br opacity-0 group-hover:opacity-100 transition-opacity" />
                   <CardHeader className="pb-phi-sm">
@@ -484,14 +590,16 @@ export default function App() {
                     </ResponsiveContainer>
                   </div>
                 ) : (
-                  <div className="h-[350px] flex flex-col items-center justify-center text-gold/20 border border-dashed border-gold/10 rounded-2xl">
+                  <div className="h-[350px] flex flex-col items-center justify-center neon-box-gold bg-gold/5 rounded-2xl relative">
+                    <div className="hud-corner hud-corner-tl" />
+                    <div className="hud-corner hud-corner-br" />
                     <motion.div
-                      animate={{ opacity: [0.2, 0.5, 0.2] }}
+                      animate={{ opacity: [0.2, 0.8, 0.2], scale: [1, 1.1, 1] }}
                       transition={{ duration: 4, repeat: Infinity }}
                     >
-                      <Clock className="w-16 h-16 mb-phi-sm" />
+                      <Clock className="w-16 h-16 mb-phi-sm text-gold" />
                     </motion.div>
-                    <p className="text-xs font-serif italic tracking-[0.3em] uppercase">Awaiting Natural Alignment</p>
+                    <p className="text-xs font-serif italic tracking-[0.3em] uppercase neon-text-gold">Awaiting Natural Alignment</p>
                   </div>
                 )}
               </CardContent>
@@ -502,32 +610,53 @@ export default function App() {
           <Card className="bg-card backdrop-blur-xl border-gold/10 relative">
             <div className="hud-corner hud-corner-bl" />
             <div className="hud-corner hud-corner-br" />
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xl font-serif flex items-center gap-phi-sm">
                 <Brain className="w-5 h-5 text-gold" />
                 The Senses • Agent Swarm
               </CardTitle>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={runAgents}
+                disabled={isAnalyzing}
+                className="neon-box-gold border-gold/20 text-[10px] uppercase tracking-widest font-mono"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <RefreshCw className="w-3 h-3 mr-2 animate-spin" />
+                    Analyzing
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-3 h-3 mr-2" />
+                    Sync Intelligence
+                  </>
+                )}
+              </Button>
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="reports" className="w-full">
                 <TabsList className="bg-obsidian/50 border border-gold/10 mb-phi-lg p-1 rounded-full">
                   <TabsTrigger value="reports" className="rounded-full px-phi-lg data-[state=active]:bg-gold data-[state=active]:text-obsidian">Insights</TabsTrigger>
+                  <TabsTrigger value="trades" className="rounded-full px-phi-lg data-[state=active]:bg-gold data-[state=active]:text-obsidian">Journal</TabsTrigger>
+                  <TabsTrigger value="memory" className="rounded-full px-phi-lg data-[state=active]:bg-gold data-[state=active]:text-obsidian">Memory</TabsTrigger>
                   <TabsTrigger value="audit" className="rounded-full px-phi-lg data-[state=active]:bg-gold data-[state=active]:text-obsidian">Audit Chain</TabsTrigger>
                 </TabsList>
                 <TabsContent value="reports">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-phi-lg">
-                    {state.agentReports.length > 0 ? state.agentReports.map((report, idx) => (
-                      <motion.div 
-                        key={idx}
-                        whileHover={{ y: -5, borderColor: 'rgba(212, 175, 55, 0.4)' }}
-                        className="p-phi-lg bg-obsidian/30 border border-gold/5 rounded-2xl hover:border-gold/20 transition-all duration-700 relative group"
-                      >
-                        <div className="hud-corner hud-corner-tl opacity-0 group-hover:opacity-100 scale-75 transition-all" />
-                        <div className="flex items-center justify-between mb-phi-sm">
-                          <span className="text-[9px] font-mono text-gold/40 uppercase tracking-widest">{report.agentId.split('_')[0]}</span>
-                          <div className={`w-2 h-2 rounded-full ${report.bias === "Bullish" ? "bg-emerald shadow-[0_0_10px_rgba(6,78,59,0.5)]" : "bg-gold shadow-[0_0_10px_rgba(212,175,55,0.5)]"}`} />
-                        </div>
-                        <p className="text-xs text-ivory/70 font-serif leading-relaxed italic mb-phi-sm line-clamp-4">"{report.reasoning}"</p>
+                      {state.agentReports.length > 0 ? state.agentReports.map((report, idx) => (
+                        <motion.div 
+                          key={idx}
+                          whileHover={{ y: -5 }}
+                          className={`p-phi-lg bg-obsidian/30 border rounded-2xl transition-all duration-700 relative group ${report.bias === 'Bullish' ? 'neon-box-emerald border-emerald/20' : 'neon-box-gold border-gold/20'}`}
+                        >
+                          <div className="hud-corner hud-corner-tl" />
+                          <div className="flex items-center justify-between mb-phi-sm">
+                            <span className={`${report.bias === 'Bullish' ? 'neon-text-emerald' : 'neon-text-gold'} text-[9px] font-mono uppercase tracking-widest`}>{report.agentId.split('_')[0]}</span>
+                            <div className={`w-2 h-2 rounded-full ${report.bias === "Bullish" ? "bg-emerald shadow-[0_0_15px_rgba(16,185,129,0.8)]" : "bg-gold shadow-[0_0_15px_rgba(212,175,55,0.8)]"}`} />
+                          </div>
+                          <p className={`text-xs ${report.bias === 'Bullish' ? 'neon-text-emerald' : 'neon-text-gold'} font-serif leading-relaxed italic mb-phi-sm line-clamp-4`}>"{report.reasoning}"</p>
                         <div className="flex items-center gap-phi-sm">
                           <div className="h-[2px] flex-1 bg-gold/5 rounded-full overflow-hidden">
                             <motion.div 
@@ -547,21 +676,116 @@ export default function App() {
                     )}
                   </div>
                 </TabsContent>
-                <TabsContent value="audit">
+                <TabsContent value="trades">
+                  <ScrollArea className="h-[250px] rounded-2xl border border-gold/5 bg-obsidian/40">
+                    <Table>
+                      <TableHeader className="bg-gold/5 sticky top-0 z-10">
+                        <TableRow className="border-gold/10 hover:bg-transparent">
+                          <TableHead className="text-gold font-serif text-[10px] uppercase tracking-widest px-phi-lg">Time</TableHead>
+                          <TableHead className="text-gold font-serif text-[10px] uppercase tracking-widest">Symbol</TableHead>
+                          <TableHead className="text-gold font-serif text-[10px] uppercase tracking-widest text-right">Side</TableHead>
+                          <TableHead className="text-gold font-serif text-[10px] uppercase tracking-widest text-right px-phi-lg flex items-center justify-end gap-1">
+                            Status <ReceiptText className="w-2 h-2 opacity-50" />
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {state.trades && state.trades.length > 0 ? state.trades.map((trade, idx) => (
+                          <TableRow key={idx} className="border-gold/5 hover:bg-gold/5 transition-colors group relative overflow-hidden">
+                            <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 ${trade.type === 'BUY' ? 'bg-emerald shadow-[0_0_10px_#10b981]' : 'bg-red-500 shadow-[0_0_10px_#ef4444]'}`} />
+                            <TableCell className="font-mono text-[10px] text-gold/40 px-phi-lg">{new Date(trade.time).toLocaleTimeString()}</TableCell>
+                            <TableCell className="font-serif text-ivory text-xs font-semibold">
+                              <div className="flex flex-col">
+                                <span>{trade.symbol}</span>
+                                <button 
+                                  onClick={() => handleTeachAgent(trade.symbol + idx)}
+                                  className="text-[8px] text-gold/40 hover:text-gold uppercase tracking-tighter w-fit font-mono mt-0.5"
+                                >
+                                  [Teach Agent]
+                                </button>
+                              </div>
+                            </TableCell>
+                            <TableCell className={`text-right font-mono text-[10px] ${trade.type === 'BUY' ? 'text-emerald' : 'text-red-400'}`}>
+                              {trade.type} [{trade.qty}]
+                            </TableCell>
+                            <TableCell className="text-right px-phi-lg">
+                              <Badge variant="outline" className={`text-[8px] border-gold/20 ${trade.status === 'SUCCESS' ? 'bg-emerald/10 text-emerald' : 'bg-gold/5 text-gold'}`}>
+                                {trade.status}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        )) : (
+                          <TableRow>
+                            <TableCell colSpan={4} className="h-32 text-center text-gold/10 font-serif italic uppercase tracking-widest">
+                              No execution signatures recorded
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                </TabsContent>
+                <TabsContent value="memory">
                   <ScrollArea className="h-[250px] rounded-2xl border border-gold/5 bg-obsidian/40 p-phi-lg">
                     <div className="space-y-phi-lg">
-                      {state.agentReports.map((r, i) => (
-                        <div key={i} className="flex items-start gap-phi-lg group">
-                          <div className="mt-1 p-2 bg-gold/5 rounded-full group-hover:bg-gold/10 transition-colors">
-                            <Hash className="w-3 h-3 text-gold/60" />
+                      {state.lessons && state.lessons.length > 0 ? state.lessons.map((lesson, idx) => (
+                        <motion.div 
+                          key={idx}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="p-phi-lg bg-obsidian/40 border border-gold/10 rounded-2xl relative group neon-box-gold"
+                        >
+                          <div className="hud-corner hud-corner-tr" />
+                          <div className="absolute top-2 right-2 flex items-center gap-1 opacity-20 group-hover:opacity-100 transition-opacity">
+                            <span className="text-[7px] font-mono text-gold uppercase tracking-tighter">SHARD:</span>
+                            <span className="text-[7px] font-mono text-gold break-all max-w-[60px] truncate">{lesson.hash}</span>
                           </div>
-                          <div className="flex-1">
-                            <p className="text-[10px] font-mono text-gold/80 uppercase tracking-wider">BLOCK_{i+1}_VERIFIED</p>
-                            <p className="text-[9px] text-gold/20 font-mono break-all mt-1">{state.lastHash}</p>
-                            <Separator className="mt-phi-sm bg-gold/5" />
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="text-[10px] font-mono text-gold/60 flex items-center gap-2">
+                              <Database className="w-3 h-3" /> COGNITIVE_BLOCK_{lesson.index}
+                            </span>
+                            <Badge variant="outline" className="text-[8px] bg-red-900/10 text-red-400 border-red-900/20">{lesson.outcome}</Badge>
                           </div>
+                          <p className="text-xs text-ivory/80 font-serif italic mb-2">"{lesson.reasonForLoss}"</p>
+                          <div className="flex items-center gap-2 bg-gold/5 p-2 rounded-lg border border-gold/5">
+                            <Microscope className="w-3 h-3 text-gold" />
+                            <p className="text-[10px] text-gold/80 font-mono tracking-tight">{lesson.agentCorrection}</p>
+                          </div>
+                        </motion.div>
+                      )) : (
+                        <div className="h-32 flex flex-col items-center justify-center gap-4 text-gold/10 border border-dashed border-gold/10 rounded-2xl">
+                          <Brain className="w-12 h-12 mb-2 opacity-20" />
+                          <p className="font-serif italic uppercase tracking-widest text-sm">Artificial mind is currently pristine</p>
                         </div>
-                      ))}
+                      )}
+                    </div>
+                  </ScrollArea>
+                </TabsContent>
+                <TabsContent value="audit">
+                  <ScrollArea className="h-[250px] rounded-2xl border border-gold/5 bg-obsidian/40 p-phi-lg">
+                    <div className="space-y-phi-sm">
+                      {state.logs && state.logs.length > 0 ? [...state.logs].reverse().map((log, idx) => (
+                        <motion.div 
+                          key={idx}
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="flex items-start gap-phi-sm font-mono text-[9px] group"
+                        >
+                          <span className="text-gold/20 font-serif tabular-nums min-w-[60px]">{log.time}</span>
+                          <span className="text-gold/20 opacity-0 group-hover:opacity-100 transition-opacity uppercase tracking-tighter">BLOCK_REF_</span>
+                          <span className={`${
+                            log.type === 'error' ? 'text-red-400' : 
+                            log.type === 'success' ? 'text-emerald' : 
+                            log.type === 'market' ? 'text-gold' : 'text-gold/60'
+                          } flex-1`}>
+                            {log.msg}
+                          </span>
+                        </motion.div>
+                      )) : (
+                        <div className="h-32 flex items-center justify-center text-[10px] uppercase font-mono tracking-tighter text-gold/10">
+                          Empty Ledger Cache // No Network Activity
+                        </div>
+                      )}
                     </div>
                   </ScrollArea>
                 </TabsContent>
@@ -578,7 +802,7 @@ export default function App() {
                 exit={{ opacity: 0, height: 0 }}
                 transition={{ duration: 1 }}
               >
-                <Card className="bg-card backdrop-blur-xl border-gold/20 relative overflow-hidden">
+                <Card className="bg-card backdrop-blur-xl border-gold/20 relative overflow-hidden neon-box-gold">
                   <div className="hud-corner hud-corner-tl" />
                   <div className="hud-corner hud-corner-tr" />
                   <div className="absolute top-0 right-0 p-2">
@@ -596,20 +820,20 @@ export default function App() {
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-phi-lg">
                       <div className="md:col-span-1 space-y-phi-sm">
-                        <div className="p-phi-sm bg-obsidian/40 border border-gold/10 rounded-xl">
+                        <div className="p-phi-sm bg-obsidian/40 border border-gold/10 rounded-xl neon-box-gold">
                           <p className="text-[8px] font-mono text-gold/40 uppercase tracking-widest mb-1">Sector Bias</p>
-                          <p className={`text-xl font-serif ${state.bfsiReport.bias === "Bullish" ? "text-emerald" : "text-gold"}`}>{state.bfsiReport.bias}</p>
+                          <p className={`text-xl font-serif ${state.bfsiReport.bias === "Bullish" ? "neon-text-emerald" : "neon-text-gold"}`}>{state.bfsiReport.bias}</p>
                         </div>
-                        <div className="p-phi-sm bg-obsidian/40 border border-gold/10 rounded-xl">
+                        <div className="p-phi-sm bg-obsidian/40 border border-gold/10 rounded-xl neon-box-gold">
                           <p className="text-[8px] font-mono text-gold/40 uppercase tracking-widest mb-1">Conviction</p>
-                          <p className="text-xl font-serif text-gold">{state.bfsiReport.conviction}/10</p>
+                          <p className="text-xl font-serif neon-text-gold">{state.bfsiReport.conviction}/10</p>
                         </div>
-                        <div className="p-phi-sm bg-obsidian/40 border border-gold/10 rounded-xl">
+                        <div className="p-phi-sm bg-obsidian/40 border border-gold/10 rounded-xl neon-box-gold">
                           <p className="text-[8px] font-mono text-gold/40 uppercase tracking-widest mb-1">Volatility</p>
-                          <p className="text-xl font-serif text-gold">{state.bfsiReport.volatilityScore}/10</p>
+                          <p className="text-xl font-serif neon-text-gold">{state.bfsiReport.volatilityScore}/10</p>
                         </div>
                       </div>
-                      <div className="md:col-span-3 p-phi-lg bg-obsidian/20 border border-gold/5 rounded-2xl relative">
+                      <div className="md:col-span-3 p-phi-lg bg-obsidian/20 border border-gold/5 rounded-2xl relative neon-box-gold">
                         <div className="absolute top-2 right-2">
                           <div className={`flex items-center gap-2 text-[8px] font-mono ${state.bfsiReport.triggerFibLogic ? "text-emerald" : "text-gold/40"}`}>
                             <div className={`w-1.5 h-1.5 rounded-full ${state.bfsiReport.triggerFibLogic ? "bg-emerald animate-pulse" : "bg-gold/20"}`} />

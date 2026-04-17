@@ -29,17 +29,21 @@ export interface OrderResponse {
 export class BrokerService {
   private isRealEnabled: boolean = false;
   private isSafetyOn: boolean = true; // DEFAULT: Safety Always On
-  private apiKey: string | undefined;
+  private clientId: string | undefined;
   private accessToken: string | undefined;
 
   constructor() {
     this.refreshConfig();
   }
 
-  public refreshConfig(apiKey?: string, accessToken?: string): void {
-    this.apiKey = apiKey || process.env.KITE_API_KEY;
-    this.accessToken = accessToken || process.env.KITE_ACCESS_TOKEN;
-    this.isRealEnabled = !!(this.apiKey && this.accessToken);
+  public refreshConfig(clientId?: string, accessToken?: string): void {
+    // In Vite, environment variables are in import.meta.env
+    // In Node.js, they are in process.env
+    const env = (typeof process !== 'undefined' && process.env) || (import.meta as any).env || {};
+    
+    this.clientId = clientId || env.DHAN_CLIENT_ID || (import.meta as any).env?.VITE_DHAN_CLIENT_ID;
+    this.accessToken = accessToken || env.DHAN_ACCESS_TOKEN || (import.meta as any).env?.VITE_DHAN_ACCESS_TOKEN;
+    this.isRealEnabled = !!(this.clientId && this.accessToken);
   }
 
   public toggleSafety(val: boolean) {
@@ -64,45 +68,56 @@ export class BrokerService {
     }
 
     try {
-      console.log(`[BROKER] Executing LIVE Order for ${order.symbol} via Kite API`);
+      console.log(`[BROKER] Executing LIVE Order for ${order.symbol} via DhanHQ API`);
       
-      // In a real production app, we would use the 'kiteconnect' npm package.
-      // For this demo, we demonstrate the raw REST API integration used by Indian brokers.
-      const response = await fetch("https://api.kite.trade/orders/regular", {
+      const response = await fetch("https://api.dhan.co/orders", {
         method: "POST",
         headers: {
-          "X-Kite-Version": "3",
-          "Authorization": `token ${this.apiKey}:${this.accessToken}`,
-          "Content-Type": "application/x-www-form-urlencoded"
+          "access-token": this.accessToken!,
+          "Content-Type": "application/json"
         },
-        body: new URLSearchParams({
-          "tradingsymbol": order.symbol,
-          "exchange": "NFO",
-          "transaction_type": order.transactionType,
-          "order_type": order.orderType,
-          "quantity": order.quantity.toString(),
-          "product": "MIS", // Day trading product in India
-          "validity": "DAY",
-          "price": order.price?.toString() || "0",
-          "squareoff": (order.target ? order.target - (order.price || 0) : 0).toString(),
-          "stoploss": (order.price && order.stopLoss ? (order.price - order.stopLoss) : 0).toString(),
-          "trailing_stoploss": "0"
+        body: JSON.stringify({
+          dhanClientId: this.clientId,
+          correlationId: `CONF-${Date.now()}`,
+          transactionType: order.transactionType,
+          exchangeSegment: "NSE_FNO",
+          productType: "INTRADAY",
+          orderType: order.orderType === "SL-M" ? "STOP_LOSS_MARKET" : order.orderType,
+          validity: "DAY",
+          tradingSymbol: order.symbol,
+          securityId: "0", 
+          quantity: order.quantity,
+          price: order.price || 0,
+          triggerPrice: order.stopLoss || 0,
+          afterMarketOrder: false
         })
       });
 
-      const data = await response.json();
-
-      if (data.status === "success") {
+      let data;
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        console.warn("[BROKER] Non-JSON Response:", text);
         return {
-          orderId: data.data.order_id,
+          orderId: "REJECTED",
+          status: "REJECTED",
+          message: `Broker returned non-JSON response (${response.status}). Check API credentials.`
+        };
+      }
+
+      if (data.status === "success" || data.orderStatus === "TRANSIT" || response.status === 200) {
+        return {
+          orderId: data.orderId || data.data?.order_id || "DHAN-PENDING",
           status: "SUCCESS",
-          message: "Live Bracket Order placed successfully."
+          message: "Live Dhan order transmitted successfully."
         };
       } else {
         return {
           orderId: "FAILED",
           status: "REJECTED",
-          message: data.message || "Broker rejected the order."
+          message: data.remarks || data.message || `Order rejected by broker (Error: ${response.status})`
         };
       }
     } catch (err) {
@@ -130,11 +145,25 @@ export class BrokerService {
   }
 
   /**
-   * Maps Spot Index price to the nearest tradable Futures instrument.
+   * Maps Spot Index or Equity to a tradable instrument.
+   * Supports: NIFTY, BANKNIFTY, FINNIFTY, SENSEX, MIDCPNIFTY
    */
-  public getTradableInstrument(spotSymbol: string): string {
+  public getTradableInstrument(spotSymbol: string, type: "FUT" | "EQ" = "FUT"): string {
+    if (type === "EQ") return spotSymbol; // Equities use direct symbols
+    
+    // Mapping for major Indian indices
+    const symbolMap: Record<string, string> = {
+      "NIFTY 50": "NIFTY",
+      "NIFTY BANK": "BANKNIFTY",
+      "NIFTY FIN SERVICE": "FINNIFTY",
+      "SENSEX": "BSESENSEX",
+      "NIFTY MIDCAP SELECT": "MIDCPNIFTY"
+    };
+
+    const base = symbolMap[spotSymbol] || spotSymbol;
     const month = new Date().toLocaleString('default', { month: 'short' }).toUpperCase();
     const year = new Date().getFullYear().toString().slice(-2);
-    return `${spotSymbol}${year}${month}FUT`;
+    
+    return `${base}${year}${month}FUT`;
   }
 }

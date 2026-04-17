@@ -4,44 +4,58 @@
  * All rights reserved.
  */
 
-import { useState, useEffect } from "react";
-import { motion, useSpring } from "motion/react";
-
-const useMousePosition = () => {
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  useEffect(() => {
-    const setFromEvent = (e: MouseEvent) => setPosition({ x: e.clientX, y: e.clientY });
-    window.addEventListener("mousemove", setFromEvent);
-    return () => window.removeEventListener("mousemove", setFromEvent);
-  }, []);
-  return position;
-};
+import { useEffect } from "react";
+import { motion, useMotionValue, useSpring } from "motion/react";
 
 export const CustomCursor = () => {
-  const mousePos = useMousePosition();
-  const cursorSpringX = useSpring(mousePos.x, { stiffness: 500, damping: 28 });
-  const cursorSpringY = useSpring(mousePos.y, { stiffness: 500, damping: 28 });
-  const followerSpringX = useSpring(mousePos.x, { stiffness: 250, damping: 20 });
-  const followerSpringY = useSpring(mousePos.y, { stiffness: 250, damping: 20 });
+  // Use MotionValues for absolute zero-latency tracking
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+
+  // Springs for the "aesthetic" lag on the outer ring
+  const ringX = useSpring(mouseX, { stiffness: 150, damping: 20, mass: 0.5 });
+  const ringY = useSpring(mouseY, { stiffness: 150, damping: 20, mass: 0.5 });
 
   useEffect(() => {
-    cursorSpringX.set(mousePos.x);
-    cursorSpringY.set(mousePos.y);
-    followerSpringX.set(mousePos.x);
-    followerSpringY.set(mousePos.y);
-  }, [mousePos, cursorSpringX, cursorSpringY, followerSpringX, followerSpringY]);
+    const handleMouseMove = (e: MouseEvent) => {
+      mouseX.set(e.clientX);
+      mouseY.set(e.clientY);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, [mouseX, mouseY]);
 
   return (
     <>
+      {/* Primary Indicator - Minimal latency */}
       <motion.div 
         className="custom-cursor" 
-        style={{ left: cursorSpringX, top: cursorSpringY, x: "-50%", y: "-50%" }}
+        style={{ 
+          x: mouseX, 
+          y: mouseY,
+          position: "fixed",
+          top: 0,
+          left: 0,
+          marginLeft: "-6px", // Centering manually since x/y overwrite transform
+          marginTop: "-6px"
+        }}
       />
+      
+      {/* Outer Aesthetic Ring - Controlled lag */}
       <motion.div 
         className="custom-cursor-follower flex items-center justify-center" 
-        style={{ left: followerSpringX, top: followerSpringY, x: "-50%", y: "-50%" }}
+        style={{ 
+          x: ringX, 
+          y: ringY,
+          position: "fixed",
+          top: 0,
+          left: 0,
+          marginLeft: "-22px", // Centering manually (44px width)
+          marginTop: "-22px"
+        }}
       >
-        <div className="w-1 h-1 bg-gold/20 rounded-full" />
+        <div className="w-1 h-1 bg-gold/40 rounded-full animate-pulse" />
       </motion.div>
     </>
   );

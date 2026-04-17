@@ -20,6 +20,17 @@ service cloud.firestore {
     //   - isKillSwitchActive: bool
     //   - maxTradesPerDay: int
     //   - lastHash: string
+    // Collection: lessons
+    // Fields:
+    //   - index: int
+    //   - timestamp: string
+    //   - tradeId: string
+    //   - outcome: string
+    //   - reasonForLoss: string
+    //   - agentCorrection: string
+    //   - confidence: number
+    //   - previousHash: string
+    //   - hash: string
     //
     // ===============================================================
 
@@ -43,6 +54,30 @@ service cloud.firestore {
     // Config is Read/Write for Admins
     match /config/{configId} {
       allow read, write: if isAdmin();
+    }
+
+    // Lessons (Proof of Learning Chain)
+    match /lessons/{lessonId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidLesson(request.resource.data);
+      allow update, delete: if false; // Chained memory is immutable
+    }
+
+    // Persistent Engine State for resilience
+    match /state/{stateId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    function isValidLesson(data) {
+      return data.index is int &&
+             data.timestamp is string &&
+             data.tradeId is string &&
+             data.outcome in ['WIN', 'LOSS'] &&
+             data.reasonForLoss is string &&
+             data.previousHash is string &&
+             data.hash is string &&
+             data.reasonForLoss.size() < 2000;
     }
   }
 }
