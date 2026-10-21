@@ -1,78 +1,29 @@
 /**
- * CONFLUENCE ENGINE - SHARED TYPES
+ * CONFLUENCE ENGINE - SHARED TYPES (dashboard view of the brain)
  */
 
-export interface AgentReport {
-  agentId: string;
-  bias: "Bullish" | "Bearish" | "Neutral";
-  intensity: number;
-  reasoning: string;
-  keyLevels?: number[];
-}
+import type { PaperTrade, Market, StrategyInfo, StrategyId } from "./core/brain";
+import type { Prediction, LevelRow } from "./core/engineRunner";
 
-export interface ApexSignal {
-  pod: string;
-  signal: "Risk-On" | "Risk-Off" | "Neutral" | "Bearish" | "Bullish";
-  score: number; // -5 to +5
-  reasoning: string;
-}
+export type { PaperTrade, Market, Prediction, LevelRow };
 
-export interface BFSISectorReport {
-  sector: "BFSI";
-  bias: "Bullish" | "Bearish" | "Neutral";
-  conviction: number;
-  volatilityScore: number;
-  reasoning: string;
-  keyLevels?: number[];
-  triggerFibLogic: boolean;
-}
-
-export interface LogEntry {
-  time: string;
-  msg: string;
-  type: "system" | "agent" | "market" | "success" | "error";
-}
-
-export type MarketStrategy = "BREAKOUT" | "MEAN_REVERSION" | "WAIT";
-
-export interface Trade {
-  time: string;
-  symbol: string;
-  type: "BUY" | "SELL";
-  qty: number;
-  price: number;
-  status: string;
-  pnl?: number;
-}
-
-export interface Lesson {
-  index: number;
-  timestamp: string;
-  tradeId: string;
-  outcome: "WIN" | "LOSS";
-  reasonForLoss: string;
-  agentCorrection: string;
-  confidence: number;
-  previousHash: string;
-  hash: string;
-}
-
-export interface EngineState {
-  currentTime: string;
-  isMarketOpen: boolean;
-  phase: string;
-  agentReports: AgentReport[];
-  bfsiReport: BFSISectorReport | null;
-  apexSignals: ApexSignal[];
-  marketBiasScore: number; // -10 to +10
-  consensus: MarketStrategy;
-  fibLevels: any; // Using any for simplicity in types, but kept as FibonacciLevels in core
-  lastHash: string;
-  logs: LogEntry[];
-  trades: Trade[];
-  lessons: Lesson[];
-  isSimulating: boolean;
-  isBrokerConnected: boolean;
-  isSafetyOn: boolean;
-  brokerMode: "LIVE" | "PAPER_TRADING";
+export interface EngineView {
+  lastRun: string | null;
+  notes: string[];
+  lastError: string | null;
+  running: boolean;
+  levels: LevelRow[];
+  predictions: Prediction[];
+  trades: PaperTrade[];
+  brief: { text: string; at: string; model: string } | null;
+  killSwitch: boolean;
+  liveEnabled: boolean;
+  envLive: boolean;
+  brokerConfigured: boolean;
+  claudeConfigured: boolean;
+  claudeModel: string;
+  store: "firestore" | "file";
+  risk: { riskPerTradeInr: number; maxLiveTradesPerDay: number; dailyLossLimitInr: number; maxCapitalPerTradeInr: number };
+  strategies: Record<StrategyId, StrategyInfo>;
+  instruments: { name: string; market: Market; live: boolean }[];
 }

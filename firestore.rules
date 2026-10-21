@@ -1,83 +1,25 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // ===============================================================
-    // Assumed Data Model
-    // ===============================================================
-    //
-    // Collection: ledger
-    // Fields:
-    //   - timestamp: string (ISO 8601)
-    //   - type: string (SYSTEM, AGENT, MARKET, TRADE)
-    //   - data: map (payload)
-    //   - previousHash: string
-    //   - hash: string
-    //   - index: int
-    //
-    // Collection: config
-    // Fields:
-    //   - isKillSwitchActive: bool
-    //   - maxTradesPerDay: int
-    //   - lastHash: string
-    // Collection: lessons
-    // Fields:
-    //   - index: int
-    //   - timestamp: string
-    //   - tradeId: string
-    //   - outcome: string
-    //   - reasonForLoss: string
-    //   - agentCorrection: string
-    //   - confidence: number
-    //   - previousHash: string
-    //   - hash: string
-    //
-    // ===============================================================
+    // The browser only signs in. All engine data is read and written by the
+    // server through the Admin SDK, which these rules do not restrict.
 
-    // Helper Functions
-    function isAuthenticated() {
-      return request.auth != null;
+    function isOwner() {
+      return request.auth != null
+        && request.auth.token.email == "chijobha@gmail.com"
+        && request.auth.token.email_verified == true;
     }
 
-    function isAdmin() {
-      return isAuthenticated() && 
-             (request.auth.token.email == "chijobha@gmail.com" && request.auth.token.email_verified == true);
-    }
+    // Read-only views for the owner (audit trail and engine data)
+    match /ledger/{blockId} { allow read: if isOwner(); allow write: if false; }
+    match /brain/{docId} { allow read: if isOwner(); allow write: if false; }
+    match /brain_trades/{docId} { allow read: if isOwner(); allow write: if false; }
+    match /brain_predictions/{docId} { allow read: if isOwner(); allow write: if false; }
 
-    // Ledger is Append-Only
-    match /ledger/{blockId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated(); 
-      allow update, delete: if false; // Immutable
-    }
+    // Broker keys must never be stored in the database
+    match /config/{configId} { allow read, write: if false; }
 
-    // Config is Read/Write for Admins
-    match /config/{configId} {
-      allow read, write: if isAdmin();
-    }
-
-    // Lessons (Proof of Learning Chain)
-    match /lessons/{lessonId} {
-      allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && isValidLesson(request.resource.data);
-      allow update, delete: if false; // Chained memory is immutable
-    }
-
-    // Persistent Engine State for resilience
-    match /state/{stateId} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin();
-    }
-
-    function isValidLesson(data) {
-      return data.index is int &&
-             data.timestamp is string &&
-             data.tradeId is string &&
-             data.outcome in ['WIN', 'LOSS'] &&
-             data.reasonForLoss is string &&
-             data.previousHash is string &&
-             data.hash is string &&
-             data.reasonForLoss.size() < 2000;
-    }
+    // Everything else is closed
+    match /{document=**} { allow read, write: if false; }
   }
 }
