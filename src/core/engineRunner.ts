@@ -74,9 +74,22 @@ function outcome(q: Question, b: DailyBar, prev: DailyBar): boolean {
   return b.close > prev.close;
 }
 
+export interface Quote {
+  instrument: string;
+  last: number; // latest 5-minute close
+  t: number; // that bar's start, epoch ms
+  sessionDate: string; // session of the latest bar
+  sessionStart: number; // epoch ms
+  open: number | null; // today's opening price, if the session has started
+  pdc: number; // previous completed session's close
+  adr: number;
+  hv20: number; // 20-day close-to-close volatility, annualised
+}
+
 export interface CycleChanges {
   trades: PaperTrade[]; // trades created or changed this cycle
   predictions: Prediction[];
+  quotes: Record<string, Quote>; // latest price per instrument (used by the simulator)
 }
 
 export interface Fetchers {
@@ -103,6 +116,7 @@ export async function runCycle(
   const changedPreds = new Map<string, Prediction>();
   const levels: LevelRow[] = [];
   const notes: string[] = [];
+  const quotes: Record<string, Quote> = {};
 
   const putTrade = (t: PaperTrade) => {
     const before = state.trades[t.id];
@@ -129,6 +143,20 @@ export async function runCycle(
       return intraday.filter((b) => b.t >= start && b.t < end);
     };
     const isDone = (date: string) => done.some((b) => b.date === date);
+
+    // Latest quote (for the simulated broker)
+    if (intraday.length && done.length > 21) {
+      const lb = intraday[intraday.length - 1];
+      const sd = dateIn(sessionTz(inst), lb.t);
+      const { start } = sessionBounds(inst, sd);
+      const prior = done.filter((b) => b.date < sd);
+      const rets = prior.slice(-21).map((b, i, a) => (i ? Math.log(b.close / a[i - 1].close) : 0)).slice(1);
+      const sd20 = Math.sqrt(rets.reduce((a, r) => a + r * r, 0) / Math.max(1, rets.length));
+      const todays = intraday.filter((b) => b.t >= start);
+      const rng = prior.slice(-10).map((b) => b.high - b.low);
+      quotes[inst.name] = { instrument: inst.name, last: lb.close, t: lb.t, sessionDate: sd, sessionStart: start, open: todays.length ? todays[0].open : null,
+        pdc: prior.length ? prior[prior.length - 1].close : lb.close, adr: rng.reduce((a, b) => a + b, 0) / Math.max(1, rng.length), hv20: sd20 * Math.sqrt(252) };
+    }
 
     // 1. Sessions that have started (first 5-minute bar printed): at-open calls and new signals
     const started = daily.filter((b) => now >= sessionBounds(inst, b.date).start + 5 * 60000 && b.date >= startDate).slice(-3);
@@ -178,6 +206,7 @@ export async function runCycle(
       }
       const trig: string[] = [];
       if (inst.market !== "crypto") trig.push(`GAPFADE if it opens above ${(ctxN.pdc + 0.5 * ctxN.adr).toFixed(2)} (sell) or below ${(ctxN.pdc - 0.5 * ctxN.adr).toFixed(2)} (buy)`);
+      if (inst.market === "crypto") trig.push(`BREAKOUT buy above ${ctxN.pdh.toFixed(2)}, sell below ${ctxN.pdl.toFixed(2)}`);
       if (ctxN.clv > 0.9 || ctxN.clv < 0.1) trig.push(`XFADE ${ctxN.clv > 0.9 ? "SELL" : "BUY"} at the open (skipped on quiet / small-previous-day / Friday / Sunday sessions)`);
       levels.push({
         key: `${nxt}|${inst.name}`, session: nxt, instrument: inst.name, market: inst.market,
@@ -193,7 +222,7 @@ export async function runCycle(
   state.levels = levels;
   state.lastRun = new Date(now).toISOString();
   state.notes = notes;
-  return { trades: [...changedTrades.values()], predictions: [...changedPreds.values()] };
+  return { trades: [...changedTrades.values()], predictions: [...changedPreds.values()], quotes };
 }
 
 export function emptyState(): BrainState {

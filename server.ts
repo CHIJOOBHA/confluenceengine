@@ -22,6 +22,8 @@ import { RISK } from "./src/core/risk-manager.js";
 import { STRATEGIES } from "./src/core/brain.js";
 import { INSTRUMENTS } from "./src/core/instruments.js";
 import { LedgerService } from "./src/services/ledgerService.js";
+import { runSimulator, latestVix } from "./src/sim/runSim.js";
+import { newAccount, CHARGES } from "./src/sim/paperBroker.js";
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "chijobha@gmail.com").toLowerCase();
 const ENV_LIVE = process.env.LIVE_TRADING_ENABLED === "true";
@@ -106,6 +108,16 @@ async function cycle(opts: { forceBrief?: boolean } = {}): Promise<void> {
       if (i >= 0) changes.trades[i] = t; else changes.trades.push(t);
     }
     await st.save(state as BrainState, changes);
+    // Simulator: the same executor, against the paper broker
+    try {
+      const acct = (await st.loadSim()) ?? newAccount();
+      const vix = await latestVix();
+      const { notes } = await runSimulator(acct, changes, state.trades, !!meta.killSwitch, now, vix);
+      await st.saveSim(acct);
+      for (const n of notes) console.log("[SIM]", n);
+    } catch (e) {
+      console.warn("[SIM]", e instanceof Error ? e.message : e);
+    }
     for (const t of changes.trades) if (t.status === "open" || t.status === "closed") await audit(st, "TRADE", t);
     if (opts.forceBrief || briefDue(meta, now)) {
       try {
@@ -136,6 +148,24 @@ app.get("/api/state", requireOwner, async (_req, res) => {
     envLive: ENV_LIVE, brokerConfigured: broker.isConfigured(), claudeConfigured: !!process.env.ANTHROPIC_API_KEY, claudeModel: CLAUDE_MODEL,
     store: st.kind, risk: RISK, strategies: STRATEGIES, instruments: INSTRUMENTS.map((i) => ({ name: i.name, market: i.market, live: !!i.dhan })),
   });
+});
+
+app.get("/api/sim", requireOwner, async (_req, res) => {
+  const st = await store();
+  const acct = await st.loadSim();
+  if (!acct) return res.json({ account: null, charges: CHARGES });
+  const orders = [...acct.orders].reverse().slice(0, 300);
+  const trades = Object.entries(acct.links).map(([id, l]) => ({ id, ...l })).reverse().slice(0, 200);
+  res.json({ account: { startingCapital: acct.startingCapital, cash: acct.cash, realised: acct.realised, charges: acct.charges, createdAt: acct.createdAt ?? null,
+    snapshot: acct.snapshot ?? null, equity: acct.equity.slice(-600) }, orders, trades, contracts: acct.contracts, chargesConfig: CHARGES });
+});
+
+app.post("/api/sim/reset", requireOwner, async (req, res) => {
+  const cap = Number(req.body?.capital) > 0 ? Number(req.body.capital) : undefined;
+  const st = await store();
+  await st.saveSim(newAccount(cap));
+  await audit(st, "SYSTEM", { event: "simulator reset", capital: cap ?? "default" });
+  res.json({ ok: true });
 });
 
 app.post("/api/run", requireOwner, async (_req, res) => { await cycle(); res.json({ ok: !lastError, error: lastError }); });

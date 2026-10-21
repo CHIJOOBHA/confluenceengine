@@ -13,6 +13,7 @@ import { motion } from "motion/react";
 import { EngineView, PaperTrade, Prediction } from "./types";
 import { WealthSymbol } from "./components/WealthSymbol";
 import { LoginGate } from "./components/LoginGate";
+import { SimulatorPanel } from "./components/SimulatorPanel";
 import { auth } from "./lib/firebase";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 
@@ -179,7 +180,7 @@ export default function App() {
 
       <Tabs defaultValue="today" className="w-full">
         <TabsList className="flex flex-wrap h-auto bg-transparent gap-2 mb-4">
-          {[["today", "Today"], ["next", "Next session"], ["calls", "Calls"], ["trades", "Trades"], ["rules", "Rules & safety"]].map(([v, l]) => (
+          {[["today", "Today"], ["sim", "Simulator"], ["next", "Next session"], ["calls", "Calls"], ["trades", "Trades"], ["rules", "Rules & safety"]].map(([v, l]) => (
             <TabsTrigger key={v} value={v} className="neon-box-gold px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest rounded-sm data-[selected]:bg-gold/10">{l}</TabsTrigger>
           ))}
         </TabsList>
@@ -275,6 +276,8 @@ export default function App() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="sim"><SimulatorPanel api={api} /></TabsContent>
 
         <TabsContent value="rules" className="grid gap-4 md:grid-cols-2">
           <Card className="bg-card border-gold/10">

@@ -10,6 +10,7 @@ import fs from "fs";
 import path from "path";
 import { BrainState, CycleChanges, emptyState, Prediction, LevelRow } from "../core/engineRunner.js";
 import { PaperTrade } from "../core/brain.js";
+import type { SimAccount } from "../sim/paperBroker.js";
 
 export interface Meta {
   levels: LevelRow[];
@@ -25,6 +26,8 @@ export interface Store {
   load(): Promise<BrainState & { meta: Meta }>;
   save(state: BrainState, changes: CycleChanges): Promise<void>;
   saveMeta(patch: Partial<Meta>): Promise<void>;
+  loadSim(): Promise<SimAccount | null>;
+  saveSim(acct: SimAccount): Promise<void>;
 }
 
 const safeId = (s: string) => s.replace(/[\/#\[\]\.]/g, "_");
@@ -64,6 +67,13 @@ export function firestoreStore(db: FirebaseFirestore.Firestore): Store {
     async saveMeta(patch) {
       await metaRef.set(JSON.parse(JSON.stringify(patch)), { merge: true });
     },
+    async loadSim() {
+      const d = await db.collection("brain").doc("sim").get();
+      return d.exists ? (d.data() as SimAccount) : null;
+    },
+    async saveSim(acct) {
+      await db.collection("brain").doc("sim").set(JSON.parse(JSON.stringify(acct)));
+    },
   };
 }
 
@@ -92,6 +102,15 @@ export function fileStore(file = process.env.VERCEL ? "/tmp/brain-state.json" : 
     async saveMeta(patch) {
       const cur = read();
       write({ ...cur, meta: { ...cur.meta, ...patch } });
+    },
+    async loadSim() {
+      try { return JSON.parse(fs.readFileSync(file.replace(/\.json$/, "-sim.json"), "utf8")) as SimAccount; } catch { return null; }
+    },
+    async saveSim(acct) {
+      const f = file.replace(/\.json$/, "-sim.json");
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f + ".tmp", JSON.stringify(acct));
+      fs.renameSync(f + ".tmp", f);
     },
   };
 }

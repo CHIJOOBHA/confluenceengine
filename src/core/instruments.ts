@@ -46,7 +46,7 @@ export const INSTRUMENTS: Instrument[] = [
 export const START_DATE = "2026-10-22";
 
 // Weekday market holidays (from the NSE / NYSE calendars). Update every year.
-const HOLIDAYS: Record<"IN" | "US", Set<string>> = {
+export const HOLIDAYS: Record<"IN" | "US", Set<string>> = {
   IN: new Set(["2026-11-10", "2026-11-24", "2026-12-25"]),
   US: new Set(["2026-11-26", "2026-12-25"]),
 };
