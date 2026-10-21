@@ -10,7 +10,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { BrainState } from "../core/engineRunner";
+import { BrainState } from "../core/engineRunner.js";
 
 export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5-5";
 

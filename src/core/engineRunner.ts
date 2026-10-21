@@ -9,9 +9,9 @@
 
 import {
   DailyBar, IntradayBar, PaperTrade, buildContext, signalsAtOpen, nightOdds, openOdds, newTrade, advanceTrade, Market,
-} from "./brain";
-import { INSTRUMENTS, Instrument, START_DATE, sessionBounds, nextSession, nightCallGraceMs, sessionTz } from "./instruments";
-import { fetchDaily, fetchIntraday, dateIn } from "../services/marketData";
+} from "./brain.js";
+import { INSTRUMENTS, Instrument, START_DATE, sessionBounds, nextSession, nightCallGraceMs, sessionTz } from "./instruments.js";
+import { fetchDaily, fetchIntraday, dateIn } from "../services/marketData.js";
 
 export type Question = "N_H" | "N_L" | "O_G" | "O_C";
 

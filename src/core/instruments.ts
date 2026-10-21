@@ -6,7 +6,7 @@
  * sent for Indian indices and Indian stocks.
  */
 
-import { Market } from "./brain";
+import { Market } from "./brain.js";
 
 export interface Instrument {
   name: string; // display name

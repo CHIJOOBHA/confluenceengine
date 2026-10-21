@@ -6,7 +6,7 @@
  * trading, swap `fetchIntraday` for the broker's market-data feed.
  */
 
-import { DailyBar, IntradayBar } from "../core/brain";
+import { DailyBar, IntradayBar } from "../core/brain.js";
 
 const UA = { "User-Agent": "Mozilla/5.0 (ConfluenceEngine)" };
 

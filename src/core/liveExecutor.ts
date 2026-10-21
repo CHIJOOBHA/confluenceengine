@@ -13,10 +13,10 @@
  * Shadow trades, US stocks, commodities and crypto are never sent.
  */
 
-import { PaperTrade } from "./brain";
-import { INSTRUMENTS } from "./instruments";
-import { BrokerService } from "../services/brokerService";
-import { RISK, sizePosition } from "./risk-manager";
+import { PaperTrade } from "./brain.js";
+import { INSTRUMENTS } from "./instruments.js";
+import { BrokerService } from "../services/brokerService.js";
+import { RISK, sizePosition } from "./risk-manager.js";
 
 export interface LiveGate {
   envEnabled: boolean;

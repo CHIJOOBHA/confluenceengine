@@ -8,8 +8,8 @@
 
 import fs from "fs";
 import path from "path";
-import { BrainState, CycleChanges, emptyState, Prediction, LevelRow } from "../core/engineRunner";
-import { PaperTrade } from "../core/brain";
+import { BrainState, CycleChanges, emptyState, Prediction, LevelRow } from "../core/engineRunner.js";
+import { PaperTrade } from "../core/brain.js";
 
 export interface Meta {
   levels: LevelRow[];
@@ -67,7 +67,7 @@ export function firestoreStore(db: FirebaseFirestore.Firestore): Store {
   };
 }
 
-export function fileStore(file = path.join(process.cwd(), "data", "brain-state.json")): Store {
+export function fileStore(file = process.env.VERCEL ? "/tmp/brain-state.json" : path.join(process.cwd(), "data", "brain-state.json")): Store {
   const read = (): BrainState & { meta: Meta } => {
     try {
       const j = JSON.parse(fs.readFileSync(file, "utf8"));

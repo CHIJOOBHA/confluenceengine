@@ -5,8 +5,8 @@
  * Usage: npx tsx scripts/parity-check.ts DATA_DIR NOW_ISO START_DATE OUT.json
  */
 import fs from "fs";
-import { runCycle, emptyState, Fetchers } from "../src/core/engineRunner";
-import { INSTRUMENTS } from "../src/core/instruments";
+import { runCycle, emptyState, Fetchers } from "../src/core/engineRunner.js";
+import { INSTRUMENTS } from "../src/core/instruments.js";
 
 const [dir, nowIso, start, out] = process.argv.slice(2);
 const csv = (f: string) => {
