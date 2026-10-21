@@ -13,6 +13,9 @@ export const RISK = {
   maxLiveTradesPerDay: num(process.env.MAX_LIVE_TRADES_PER_DAY, 1), // Rule 2: one trade a day
   dailyLossLimitInr: num(process.env.DAILY_LOSS_LIMIT_INR, 4000), // live engine stops for the day past this
   maxCapitalPerTradeInr: num(process.env.MAX_CAPITAL_PER_TRADE_INR, 100000), // stock positions only
+  optionLots: num(process.env.OPTION_LOTS, 1), // lots of the at-the-money option bought per live trade
+  maxPremiumPerTradeInr: num(process.env.MAX_PREMIUM_PER_TRADE_INR, 15000), // exit at once if a fill costs more than this
+  optionBackstopPct: num(process.env.OPTION_BACKSTOP_PCT, 60), // broker stop on the option if the premium falls this much (in case the app stops running)
 };
 
 export interface SizeResult {

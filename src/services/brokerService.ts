@@ -19,6 +19,13 @@ export interface ResolvedInstrument {
   tradingSymbol: string;
   lotSize: number;
   expiry?: string;
+  strike?: number;
+  optionType?: "CE" | "PE";
+}
+
+export interface OrderState {
+  status: string | null; // TRADED, PENDING, REJECTED, CANCELLED, ...
+  avgPrice: number | null; // average traded price once filled
 }
 
 export interface OrderResult {
@@ -83,6 +90,30 @@ export class BrokerService {
     return { securityId: r[iId], exchangeSegment: spec.exchange === "NSE" ? "NSE_FNO" : "BSE_FNO", tradingSymbol: r[iSym], lotSize: Number(r[iLot]) || 0, expiry: exp };
   }
 
+  /**
+   * At-the-money option to BUY for a signal: CE for a buy signal, PE for a sell signal.
+   * Index options (OPTIDX) for indices, stock options (OPTSTK) for stocks; nearest expiry,
+   * skipping a contract that expires today unless OPTION_TRADE_EXPIRY_DAY=true; strike nearest to `price`.
+   */
+  async resolveOption(spec: { kind: "FUTIDX" | "EQ"; underlying: string; exchange: "NSE" | "BSE" }, optionType: "CE" | "PE", price: number, nowMs = Date.now()): Promise<ResolvedInstrument> {
+    const m = await this.loadMaster();
+    const need = (name: string) => { if (m.col[name] === undefined) throw new Error(`Dhan instrument list has no column ${name}`); return m.col[name]; };
+    const idCol = Object.keys(m.col).find((h) => /SECURITY_ID$/.test(h) && !/UNDERLYING/.test(h));
+    if (!idCol) throw new Error("Dhan instrument list: security id column not found");
+    const iId = m.col[idCol], iEx = need("SEM_EXM_EXCH_ID"), iInst = need("SEM_INSTRUMENT_NAME"), iSym = need("SEM_TRADING_SYMBOL"), iLot = need("SEM_LOT_UNITS");
+    const iExp = need("SEM_EXPIRY_DATE"), iK = need("SEM_STRIKE_PRICE"), iT = need("SEM_OPTION_TYPE");
+    const today = new Date(nowMs + 5.5 * 3600000).toISOString().slice(0, 10);
+    const okExpiryDay = process.env.OPTION_TRADE_EXPIRY_DAY === "true";
+    const inst = spec.kind === "FUTIDX" ? "OPTIDX" : "OPTSTK";
+    const rows = m.rows.filter((r) => r[iEx] === spec.exchange && r[iInst] === inst && r[iT] === optionType && r[iSym].toUpperCase().startsWith(`${spec.underlying}-`));
+    const exps = [...new Set(rows.map((r) => String(r[iExp]).slice(0, 10)))].filter((e) => (okExpiryDay ? e >= today : e > today)).sort();
+    if (!exps.length) throw new Error(`No Dhan ${optionType} options for ${spec.underlying}`);
+    const chain = rows.filter((r) => String(r[iExp]).slice(0, 10) === exps[0]);
+    const r = chain.reduce((a, b) => (Math.abs(Number(b[iK]) - price) < Math.abs(Number(a[iK]) - price) ? b : a));
+    return { securityId: r[iId], exchangeSegment: spec.exchange === "NSE" ? "NSE_FNO" : "BSE_FNO", tradingSymbol: r[iSym], lotSize: Number(r[iLot]) || 0,
+      expiry: exps[0], strike: Number(r[iK]), optionType };
+  }
+
   private async post(path: string, body: object): Promise<OrderResult> {
     try {
       const res = await fetch(`${API}${path}`, { method: "POST", headers: this.headers(), body: JSON.stringify(body) });
@@ -114,13 +145,18 @@ export class BrokerService {
   }
 
   async orderStatus(orderId: string): Promise<string | null> {
+    return (await this.orderState(orderId)).status;
+  }
+
+  async orderState(orderId: string): Promise<OrderState> {
     try {
       const res = await fetch(`${API}/orders/${orderId}`, { headers: this.headers() });
       const data: any = await res.json();
       const d = Array.isArray(data) ? data[0] : data;
-      return d?.orderStatus ?? null;
+      const px = Number(d?.averageTradedPrice ?? d?.price);
+      return { status: d?.orderStatus ?? null, avgPrice: px > 0 ? px : null };
     } catch {
-      return null;
+      return { status: null, avgPrice: null };
     }
   }
 

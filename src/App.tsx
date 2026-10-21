@@ -103,7 +103,7 @@ export default function App() {
     }
     return {
       active: by("active"), shadow: by("shadow"),
-      open: trades.filter((t) => t.status === "open" || t.status === "pending"),
+      open: trades.filter((t) => t.status === "open"),
       closed: closed.sort((a, b) => (b.exitTime || 0) - (a.exitTime || 0)),
       upcoming: (view?.predictions || []).filter((p) => p.result === "pending" && p.call).sort((a, b) => a.session.localeCompare(b.session) || a.instrument.localeCompare(b.instrument)),
       hits: scored.filter((p) => p.result === "hit").length, scored: scored.length, scorecard,
@@ -145,7 +145,7 @@ export default function App() {
           </button>
           {view.envLive && view.brokerConfigured && (
             <button className={view.liveEnabled ? "neon-box-emerald px-4 py-2 text-[10px] font-mono uppercase tracking-widest rounded-sm" : "neon-box-red px-4 py-2 text-[10px] font-mono text-red-400 uppercase tracking-widest rounded-sm"}
-              disabled={!!busy} onClick={() => { if (view.liveEnabled || window.confirm("Send REAL Dhan orders for active Indian trades? Limits: " + `Rs ${view.risk.riskPerTradeInr} risk per trade, ${view.risk.maxLiveTradesPerDay} trade(s) a day, stop for the day after Rs ${view.risk.dailyLossLimitInr} loss.`)) act("live", "/api/live", { enabled: !view.liveEnabled }); }}>
+              disabled={!!busy} onClick={() => { if (view.liveEnabled || window.confirm("Send REAL Dhan orders? For each active Indian trade the app BUYS " + `${view.risk.optionLots} lot(s) of the at-the-money option (CE for a buy signal, PE for a sell signal). You can lose the whole premium (up to Rs ${view.risk.maxPremiumPerTradeInr} a trade). At most ${view.risk.maxLiveTradesPerDay} trade(s) a day; no new trades after a Rs ${view.risk.dailyLossLimitInr} loss.`)) act("live", "/api/live", { enabled: !view.liveEnabled }); }}>
               {view.liveEnabled ? "Back to paper" : "Go live"}
             </button>
           )}
@@ -294,7 +294,7 @@ export default function App() {
             <CardContent className="text-sm grid gap-2 text-ivory/80">
               <p><Activity className="inline w-4 h-4 mr-2 text-gold" />Live orders need all of: LIVE_TRADING_ENABLED=true on the server, Dhan keys on the server, your "Go live" click, kill switch off.</p>
               <p>Only active trades in Indian indices and stocks are ever sent. US stocks, commodities and crypto stay paper.</p>
-              <p>Risk per trade: Rs {view.risk.riskPerTradeInr} at the 1 ADR safety stop · at most {view.risk.maxLiveTradesPerDay} live trade(s) a day · live stops for the day after Rs {view.risk.dailyLossLimitInr} loss.</p>
+              <p>Live orders buy {view.risk.optionLots} lot(s) of the at-the-money option (CE for buy signals, PE for sell signals) and sell it when the brain closes the trade, or at 3:10 pm · premium per trade at most Rs {view.risk.maxPremiumPerTradeInr} · backstop stop on the option at -{view.risk.optionBackstopPct}% · at most {view.risk.maxLiveTradesPerDay} live trade(s) a day · no new trades after a Rs {view.risk.dailyLossLimitInr} loss.</p>
               <p>If one lot would risk more than the limit, the live order is not sent (the paper trade still runs).</p>
               <p className="text-ivory/50 text-xs">Paper trading is research. Results so far are small samples; nothing here is investment advice.</p>
             </CardContent>

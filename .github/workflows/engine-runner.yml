@@ -1,0 +1,27 @@
+# Runs the brain every 5 minutes during Indian market hours (and a few times a day
+# for the other markets) so live entries and exits happen on time.
+# Needs two repository secrets: CRON_SECRET (same value as in Vercel) and APP_URL
+# (https://confluenceengine.vercel.app). GitHub may start a run a few minutes late.
+name: engine-runner
+on:
+  schedule:
+    - cron: "*/5 3-10 * * 1-5"   # 08:30-16:25 IST, Mon-Fri, every 5 minutes
+    - cron: "0 11-23 * * *"      # hourly the rest of the day (US markets, crypto)
+    - cron: "0 0-2 * * *"
+    - cron: "0 3-10 * * 0,6"     # weekends (crypto)
+  workflow_dispatch: {}
+concurrency: { group: engine-runner, cancel-in-progress: false }
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run one brain cycle
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then echo "Add the CRON_SECRET and APP_URL secrets"; exit 1; fi
+          code=$(curl -s -o out.json -w '%{http_code}' -m 240 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron")
+          echo "HTTP $code"; head -c 500 out.json; echo
+          [ "$code" = "200" ]

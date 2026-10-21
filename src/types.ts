@@ -23,7 +23,7 @@ export interface EngineView {
   claudeConfigured: boolean;
   claudeModel: string;
   store: "firestore" | "file";
-  risk: { riskPerTradeInr: number; maxLiveTradesPerDay: number; dailyLossLimitInr: number; maxCapitalPerTradeInr: number };
+  risk: { riskPerTradeInr: number; maxLiveTradesPerDay: number; dailyLossLimitInr: number; maxCapitalPerTradeInr: number; optionLots: number; maxPremiumPerTradeInr: number; optionBackstopPct: number };
   strategies: Record<StrategyId, StrategyInfo>;
   instruments: { name: string; market: Market; live: boolean }[];
 }

@@ -29,7 +29,7 @@ export interface IntradayBar {
   close: number;
 }
 
-export type StrategyId = "GAPFADE" | "GAPFADE30" | "XFADE" | "XFADE_SKIPDAY" | "BIGGAP";
+export type StrategyId = "GAPFADE" | "GAPFADE30" | "XFADE" | "XFADE_SKIPDAY" | "BIGGAP" | "BREAKOUT";
 
 export interface StrategyInfo {
   description: string;
@@ -57,6 +57,10 @@ export const STRATEGIES: Record<StrategyId, StrategyInfo> = {
     description: "Gap above 0.75 ADR in the direction of the 50-day trend, market not quiet: fade it at the open; exit at session close; 1 ADR safety stop.",
     activeMarkets: ["US stock"],
   },
+  BREAKOUT: {
+    description: "Price crosses yesterday's high (buy) or low (sell) from the open's side: go with it; exit at session close; 1 ADR safety stop. Chosen on 2021-24, confirmed on 2024-26 and on 2 years of hourly bars: works in crypto only (stock markets fade breakouts).",
+    activeMarkets: ["crypto"],
+  },
 };
 
 export interface SessionContext {
@@ -80,6 +84,7 @@ export interface Signal {
   entryDelayBars: number; // 0 = at the open; 6 = 30 minutes later on 5-minute bars
   target: number | null;
   stopDistance: number; // in price units (1 ADR)
+  trigger?: number | null; // enter only when price crosses this level (BREAKOUT)
   reason: string;
 }
 
@@ -130,6 +135,12 @@ export function signalsAtOpen(market: Market, ctx: SessionContext, open: number)
         reason: `Big gap ${gap.toFixed(2)} ADR in the 50-day trend's direction, volatility ${ctx.vol.toFixed(2)}` });
     }
   }
+
+  // BREAKOUT: wait for price to cross yesterday's high/low from the open's side
+  if (open < ctx.pdh) out.push({ strategy: "BREAKOUT", mode: modeFor("BREAKOUT", market), side: 1, entryDelayBars: 0, target: null, stopDistance: ctx.adr, trigger: ctx.pdh,
+    reason: `Buy if price crosses yesterday's high ${ctx.pdh.toFixed(2)}` });
+  if (open > ctx.pdl) out.push({ strategy: "BREAKOUT", mode: modeFor("BREAKOUT", market), side: -1, entryDelayBars: 0, target: null, stopDistance: ctx.adr, trigger: ctx.pdl,
+    reason: `Sell if price crosses yesterday's low ${ctx.pdl.toFixed(2)}` });
 
   if (ctx.clv > 0.9 || ctx.clv < 0.1) {
     const side: 1 | -1 = ctx.clv > 0.9 ? -1 : 1;
@@ -256,12 +267,18 @@ export interface PaperTrade {
   mtmPct: number | null;
   entryDelayBars: number;
   stopDistance: number;
+  trigger?: number | null; // BREAKOUT entry level
   // live mirror (Indian active trades only, when live is switched on)
   brokerOrderId?: string;
   brokerStopOrderId?: string;
   brokerExitOrderId?: string;
   brokerQty?: number;
   brokerNote?: string;
+  brokerSymbol?: string; // the option bought, e.g. NIFTY-Oct2026-22800-PE
+  brokerSecurityId?: string;
+  brokerSegment?: "NSE_EQ" | "NSE_FNO" | "BSE_FNO" | "BSE_EQ";
+  brokerEntryPrice?: number; // premium paid per unit
+  brokerExitPrice?: number; // premium received per unit
 }
 
 export const COST: Record<Market, number> = {
@@ -271,9 +288,9 @@ export const NOTIONAL_INR = 100000;
 
 export function newTrade(instrument: string, market: Market, session: string, s: Signal): PaperTrade {
   return {
-    id: `${session}|${instrument}|${s.strategy}`, session, instrument, market, strategy: s.strategy, mode: s.mode, side: s.side,
+    id: `${session}|${instrument}|${s.strategy}${s.trigger != null ? (s.side === 1 ? "_UP" : "_DOWN") : ""}`, session, instrument, market, strategy: s.strategy, mode: s.mode, side: s.side,
     entryTime: null, entry: null, target: s.target, stop: null, status: "pending", exitTime: null, exit: null,
-    reason: s.reason, retPct: null, pnlInr: null, mtmPct: null, entryDelayBars: s.entryDelayBars, stopDistance: s.stopDistance,
+    reason: s.reason, retPct: null, pnlInr: null, mtmPct: null, entryDelayBars: s.entryDelayBars, stopDistance: s.stopDistance, trigger: s.trigger ?? null,
   };
 }
 
@@ -287,6 +304,16 @@ export function advanceTrade(t: PaperTrade, bars: IntradayBar[], sessionOver: bo
   const { entryDelayBars, stopDistance } = t;
   if (t.status === "closed" || t.status === "skipped" || bars.length === 0) return t;
   const tr = { ...t };
+  if (tr.status === "pending" && tr.trigger != null) {
+    const lvl = tr.trigger;
+    const i = bars.findIndex((b) => (tr.side === 1 ? b.high >= lvl : b.low <= lvl));
+    if (i < 0) return sessionOver ? { ...tr, status: "skipped", reason: tr.reason + "; level never crossed" } : tr;
+    const px = tr.side === 1 ? Math.max(lvl, bars[i].open) : Math.min(lvl, bars[i].open);
+    tr.entry = px;
+    tr.entryTime = bars[i].t;
+    tr.stop = px - tr.side * stopDistance;
+    tr.status = "open";
+  }
   if (tr.status === "pending") {
     if (bars.length <= entryDelayBars) return tr;
     const eb = bars[entryDelayBars];

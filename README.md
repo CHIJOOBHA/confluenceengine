@@ -75,23 +75,44 @@ Set `ANTHROPIC_API_KEY` (server only). `CLAUDE_MODEL` defaults to
 decides trades, and it is told not to give buy or sell advice.
 
 ## Live trading (Dhan), off by default
-Orders are sent only when **all** of these hold:
-1. `LIVE_TRADING_ENABLED=true` and Dhan keys are set on the **server**
-   (Dhan also requires a whitelisted static IP for orders).
-2. You press **Go live** in the dashboard, and the kill switch is off.
-3. The trade is an **active** trade in an Indian index or stock, entered
-   within the last 10 minutes.
-4. Today's live trades are below `MAX_LIVE_TRADES_PER_DAY` (default 1) and
-   today's loss is below `DAILY_LOSS_LIMIT_INR` (default Rs 4,000).
+The app trades by **buying options**: a buy signal buys the at-the-money **CE**,
+a sell signal buys the at-the-money **PE** (nearest expiry, skipping a contract
+that expires today unless `OPTION_TRADE_EXPIRY_DAY=true`). The most a trade can
+lose is the premium paid.
 
-Size is set so the 1 ADR safety stop loses about `RISK_PER_TRADE_INR`
-(default Rs 2,000). Instrument ids and lot sizes come from Dhan's instrument
-list each day. With the default risk, one index futures lot is usually too
-large (a Nifty lot at a 1 ADR stop risks far more than Rs 2,000), so index
-trades stay paper unless you raise the limit; stocks can be sized. Each live
-entry gets a stop-loss order at the broker; the exit is a market order when
-the paper trade closes. Keep paper trading until each rule has about 40
-closed trades and still makes money.
+Orders are sent only when **all** of these hold:
+1. `LIVE_TRADING_ENABLED=true` and Dhan keys are set on the **server**, and the
+   server's outgoing IP is registered as a static IP in Dhan (SEBI rule since
+   1 April 2026; Vercel has no fixed IP by default - see below).
+2. You press **Go live** in the dashboard, and the kill switch is off.
+3. The trade is an **active** trade in an Indian index or stock, entered within
+   the last `LIVE_ENTRY_WINDOW_MIN` minutes (default 15).
+4. Today's live trades are below `MAX_LIVE_TRADES_PER_DAY` (default 1) and today's
+   realised loss is below `DAILY_LOSS_LIMIT_INR` (default Rs 4,000).
+
+Order flow: market BUY of `OPTION_LOTS` lots (default 1) -> confirm the fill ->
+if the premium is above `MAX_PREMIUM_PER_TRADE_INR` (default Rs 15,000) sell it
+straight back -> otherwise place a backstop stop-loss on the option
+`OPTION_BACKSTOP_PCT` (default 60%) below the fill, which only matters if the
+app stops running. The option is sold when the brain closes the paper trade
+(its index stop, target or session close), at `LIVE_FLATTEN_IST` (default 15:10,
+before Dhan's own intraday square-off), or when the kill switch is pressed. If a
+sell fails, the backstop is put back and the sell is retried on the next run.
+`scripts/live-sim.ts` replays all of this against a fake broker.
+
+**Timing.** `.github/workflows/engine-runner.yml` calls `/api/cron` every 5
+minutes in Indian market hours (needs repository secrets `CRON_SECRET` and
+`APP_URL`). Vercel's own 3 daily crons stay as a fallback.
+
+**Static IP.** Dhan only accepts orders from a registered static IP. Vercel
+functions do not have one unless you buy Vercel's static IP add-on; the other
+routes are a small VPS with a fixed IP running this server (`npm start`), or a
+static-IP proxy. Until then keep `LIVE_TRADING_ENABLED=false`.
+
+Keep paper trading until each rule has about 40 closed trades and still makes
+money. The research found that buying options gives back much of the index
+edge to time decay (see findings O3 in the ledger), so compare the live option
+results with the paper index results before adding size.
 
 ## Security
 - Every API route except `/api/health` requires the owner's Firebase login
