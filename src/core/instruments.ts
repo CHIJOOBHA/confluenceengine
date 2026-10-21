@@ -47,7 +47,7 @@ export const START_DATE = "2026-10-22";
 
 // Weekday market holidays (from the NSE / NYSE calendars). Update every year.
 export const HOLIDAYS: Record<"IN" | "US", Set<string>> = {
-  IN: new Set(["2026-11-10", "2026-11-24", "2026-12-25"]),
+  IN: new Set(["2026-10-20", "2026-11-10", "2026-11-24", "2026-12-25"]), // 2026-10-20: no NSE session in the data; that week's Nifty expiry moved to Mon 19 Oct
   US: new Set(["2026-11-26", "2026-12-25"]),
 };
 
