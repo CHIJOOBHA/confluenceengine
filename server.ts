@@ -12,7 +12,7 @@ import express, { NextFunction, Request, Response } from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import path from "path";
-import { adminAuth, adminDb } from "./src/lib/firebase-admin.js";
+import { adminAuth, adminDb, firebaseInfo } from "./src/lib/firebase-admin.js";
 import { runCycle, BrainState } from "./src/core/engineRunner.js";
 import { openStore, Store, Meta } from "./src/services/stateStore.js";
 import { writeBrief, CLAUDE_MODEL } from "./src/services/claudeAnalyst.js";
@@ -35,7 +35,7 @@ app.use(express.json({ limit: "100kb" }));
 
 const broker = new BrokerService();
 let storePromise: Promise<Store> | null = null;
-const store = () => (storePromise ??= openStore(() => adminDb));
+const store = () => (storePromise ??= openStore(() => adminDb).then((s) => { console.log("[FIREBASE]", JSON.stringify({ ...firebaseInfo, store: s.kind })); return s; }));
 
 // ---------------------------------------------------------------- auth
 async function requireOwner(req: Request, res: Response, next: NextFunction) {
