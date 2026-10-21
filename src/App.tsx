@@ -13,7 +13,6 @@ import { motion } from "motion/react";
 import { EngineView, PaperTrade, Prediction } from "./types";
 import { WealthSymbol } from "./components/WealthSymbol";
 import { LoginGate } from "./components/LoginGate";
-import { CustomCursor } from "./components/CustomCursor";
 import { auth } from "./lib/firebase";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 
@@ -32,6 +31,20 @@ function Pill({ tone, children }: { tone: "gold" | "green" | "red" | "muted"; ch
 function Signed({ v, suffix = "" }: { v: number | null; suffix?: string }) {
   if (v === null || v === undefined) return <span className="text-ivory/40">—</span>;
   return <span className={v > 0 ? "text-emerald-400" : v < 0 ? "text-red-400" : ""}>{v > 0 ? "+" : ""}{v.toFixed(2)}{suffix}</span>;
+}
+
+/** Next Vercel cron run (vercel.json: 04:40, 10:10, 21:30 UTC, Mon-Fri), shown in IST. */
+function nextRunText(now = Date.now()): string {
+  const slots = [[4, 40], [10, 10], [21, 30]];
+  for (let d = 0; d < 8; d++) {
+    const day = new Date(now + d * 86400000);
+    if (day.getUTCDay() === 0 || day.getUTCDay() === 6) continue;
+    for (const [h, m] of slots) {
+      const t = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h, m);
+      if (t > now) return new Date(t).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", hour: "numeric", minute: "2-digit" });
+    }
+  }
+  return "—";
 }
 
 export default function App() {
@@ -92,6 +105,7 @@ export default function App() {
       active: by("active"), shadow: by("shadow"),
       open: trades.filter((t) => t.status === "open" || t.status === "pending"),
       closed: closed.sort((a, b) => (b.exitTime || 0) - (a.exitTime || 0)),
+      upcoming: (view?.predictions || []).filter((p) => p.result === "pending" && p.call).sort((a, b) => a.session.localeCompare(b.session) || a.instrument.localeCompare(b.instrument)),
       hits: scored.filter((p) => p.result === "hit").length, scored: scored.length, scorecard,
     };
   }, [view]);
@@ -111,13 +125,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-obsidian text-ivory p-4 md:p-phi-lg font-sans selection:bg-gold/30 relative overflow-x-hidden">
-      <CustomCursor />
-      <motion.header initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center text-center gap-4 border-b border-gold/10 pb-phi-lg mb-phi-lg">
-        <WealthSymbol className="w-16 h-16" />
-        <h1 className="text-3xl md:text-6xl font-medium uppercase tracking-[0.3em]">CONFLUENCE <span className="font-light italic text-gold/30">ENGINE</span></h1>
+      <motion.header initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center text-center gap-3 border-b border-gold/10 pb-6 mb-6">
+        <WealthSymbol className="w-9 h-9" />
+        <h1 className="text-xl md:text-3xl font-medium uppercase tracking-[0.25em]">CONFLUENCE <span className="font-light italic text-gold/30">ENGINE</span></h1>
         <p className="text-[10px] font-mono tracking-[0.4em] uppercase text-ivory/40">Tested rules · real prices · paper first</p>
         <div className="flex flex-wrap justify-center gap-2">
           <Pill tone="muted">Last run {view.lastRun ? new Date(view.lastRun).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "—"}</Pill>
+          <Pill tone="muted">Next auto run {nextRunText()}</Pill>
           <Pill tone={view.killSwitch ? "red" : "green"}>{view.killSwitch ? "Kill switch ON" : "Engine running"}</Pill>
           <Pill tone={view.liveEnabled ? "red" : "gold"}>{view.liveEnabled ? "LIVE orders ON" : "Paper only"}</Pill>
           <Pill tone="muted">Store: {view.store}</Pill>
@@ -125,7 +139,7 @@ export default function App() {
         </div>
         <div className="flex flex-wrap justify-center gap-3 pt-2">
           <button className={btn} disabled={!!busy} onClick={() => act("run", "/api/run")}><RefreshCw className={`inline w-3 h-3 mr-2 ${busy === "run" ? "animate-spin" : ""}`} />Run now</button>
-          <button className={btn} disabled={!!busy || !view.claudeConfigured} onClick={() => act("brief", "/api/brief")}><Sparkles className="inline w-3 h-3 mr-2" />Write brief</button>
+          {view.claudeConfigured && <button className={btn} disabled={!!busy} onClick={() => act("brief", "/api/brief")}><Sparkles className="inline w-3 h-3 mr-2" />Write brief</button>}
           <button className={`neon-box-red px-4 py-2 text-[10px] font-mono text-red-400 uppercase tracking-widest rounded-sm`} disabled={!!busy} onClick={() => act("kill", "/api/kill", { on: !view.killSwitch })}>
             <ShieldAlert className="inline w-3 h-3 mr-2" />{view.killSwitch ? "Release kill switch" : "Kill switch"}
           </button>
@@ -140,7 +154,7 @@ export default function App() {
         {(error || view.lastError) && <p className="text-xs text-red-400 font-mono">{error || view.lastError}</p>}
       </motion.header>
 
-      <div className="grid gap-4 grid-cols-1 md:grid-cols-4 mb-phi-lg">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4 mb-6">
         {[
           { label: "Active trades, net P&L", v: stats.active },
           { label: "Shadow trades, net P&L", v: stats.shadow },
@@ -172,10 +186,26 @@ export default function App() {
 
         <TabsContent value="today" className="grid gap-4 md:grid-cols-2">
           <Card className="bg-card border-gold/10">
+            <CardHeader><CardTitle className="font-serif font-normal text-xl">Calls waiting for the market</CardTitle>
+              <CardDescription>Made only when the odds are 60% or more either way. They are scored automatically after the session.</CardDescription></CardHeader>
+            <CardContent className="overflow-x-auto">
+              {stats.upcoming.length ? (
+                <ul className="space-y-2">
+                  {stats.upcoming.map((p) => (
+                    <li key={p.key} className="flex items-baseline justify-between gap-3 border-b border-gold/5 pb-2">
+                      <span className="text-sm">{p.instrument}<span className="text-[10px] text-ivory/40 ml-2 font-mono">{p.session}</span><div className="text-xs text-ivory/50">{QUESTION[p.question]}</div></span>
+                      <span className="text-sm text-gold whitespace-nowrap">{p.call}{p.p !== null && <span className="text-ivory/50 text-xs ml-2">{pct(p.p >= 0.5 ? p.p : 1 - p.p)} sure</span>}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-sm text-ivory/50">No calls waiting. The engine makes new ones the night before each session (next automatic run {nextRunText()}).</p>}
+            </CardContent>
+          </Card>
+          {(view.claudeConfigured || view.brief) && <Card className="bg-card border-gold/10">
             <CardHeader><CardTitle className="font-serif font-normal text-xl">Claude's brief</CardTitle>
               <CardDescription>{view.brief ? `Written ${new Date(view.brief.at).toLocaleString("en-IN")} by ${view.brief.model}` : view.claudeConfigured ? "Written automatically around 8:30 am and 3:40 pm IST, or press Write brief." : "Set ANTHROPIC_API_KEY on the server to turn this on."}</CardDescription></CardHeader>
             <CardContent><p className="text-sm leading-relaxed whitespace-pre-wrap text-ivory/85">{view.brief?.text || "No brief yet."}</p></CardContent>
-          </Card>
+          </Card>}
           <Card className="bg-card border-gold/10">
             <CardHeader><CardTitle className="font-serif font-normal text-xl">Open trades</CardTitle><CardDescription>Paper positions the rules hold right now.</CardDescription></CardHeader>
             <CardContent className="overflow-x-auto">
