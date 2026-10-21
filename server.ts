@@ -35,7 +35,13 @@ app.use(express.json({ limit: "100kb" }));
 
 const broker = new BrokerService();
 let storePromise: Promise<Store> | null = null;
-const store = () => (storePromise ??= openStore(() => adminDb).then((s) => { console.log("[FIREBASE]", JSON.stringify({ ...firebaseInfo, store: s.kind })); return s; }));
+const store = () =>
+  (storePromise ??= openStore(() => adminDb).then((s) => {
+    console.log("[FIREBASE]", JSON.stringify({ ...firebaseInfo, store: s.kind }));
+    // If Firestore was unreachable, try it again on the next request instead of sticking with the temp file.
+    if (s.kind === "file" && process.env.BRAIN_STORE !== "file") storePromise = null;
+    return s;
+  }));
 
 // ---------------------------------------------------------------- auth
 async function requireOwner(req: Request, res: Response, next: NextFunction) {

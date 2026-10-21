@@ -17,7 +17,7 @@ const config = {
   storageBucket: (import.meta as any).env?.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
   messagingSenderId: (import.meta as any).env?.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
   appId: (import.meta as any).env?.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
-  measurementId: (import.meta as any).env?.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfig.measurementId
+  measurementId: (import.meta as any).env?.VITE_FIREBASE_MEASUREMENT_ID || (firebaseConfig as { measurementId?: string }).measurementId
 };
 
 const databaseId = (import.meta as any).env?.VITE_FIREBASE_FIRESTORE_DATABASE_ID || firebaseConfig.firestoreDatabaseId;
