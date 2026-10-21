@@ -21,7 +21,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           APP_URL: ${{ secrets.APP_URL }}
         run: |
-          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then echo "Add the CRON_SECRET and APP_URL secrets"; exit 1; fi
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then echo "::warning::Add the CRON_SECRET and APP_URL repository secrets to switch the runner on"; exit 0; fi
           code=$(curl -s -o out.json -w '%{http_code}' -m 240 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron")
           echo "HTTP $code"; head -c 500 out.json; echo
           [ "$code" = "200" ]
