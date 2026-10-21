@@ -1,6 +1,6 @@
 {
   "name": "Confluence Engine",
-  "description": "Algorithmic trading backend for the Indian Stock Market (NSE/BSE) using ORB Fibonacci extensions and multi-agent AI sentiment analysis.",
+  "description": "Rule-based research and paper-trading engine for Indian and US markets: tested strategies on real prices, Claude daily briefs, optional Dhan execution behind safety gates.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

@@ -1,526 +1,188 @@
 /**
- * CONFLUENCE ENGINE - PROPRIETARY AND CONFIDENTIAL
- * Copyright (c) 2026 Confluence Quantitative Research Group.
- * All rights reserved.
+ * CONFLUENCE ENGINE - SERVER
+ *
+ * Runs the brain on real market data every few minutes (or on a cron ping),
+ * keeps its paper trades and calls, optionally mirrors active Indian trades to
+ * Dhan, and serves the owner's dashboard. Every route except /api/health needs
+ * the owner's Firebase login; /api/cron needs CRON_SECRET.
  */
 
-import express from "express";
+import "dotenv/config";
+import express, { NextFunction, Request, Response } from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-import { createServer as createViteServer } from "vite";
 import path from "path";
-import { fileURLToPath } from "url";
-import { Synthesizer } from "./src/core/synthesizer";
-import { EngineState, Lesson, Trade } from "./src/types";
-import { calculateORBLevels } from "./src/core/orb-logic";
-import { BrokerService } from "./src/services/brokerService";
-import { RiskManager } from "./src/core/risk-manager";
-import { LedgerService, AuditBlock } from "./src/services/ledgerService";
-import { adminDb } from "./src/lib/firebase-admin.ts";
+import { adminAuth, adminDb } from "./src/lib/firebase-admin.js";
+import { runCycle, BrainState } from "./src/core/engineRunner.js";
+import { openStore, Store, Meta } from "./src/services/stateStore.js";
+import { writeBrief, CLAUDE_MODEL } from "./src/services/claudeAnalyst.js";
+import { BrokerService } from "./src/services/brokerService.js";
+import { mirrorLive } from "./src/core/liveExecutor.js";
+import { RISK } from "./src/core/risk-manager.js";
+import { STRATEGIES } from "./src/core/brain.js";
+import { INSTRUMENTS } from "./src/core/instruments.js";
+import { LedgerService } from "./src/services/ledgerService.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "chijobha@gmail.com").toLowerCase();
+const ENV_LIVE = process.env.LIVE_TRADING_ENABLED === "true";
+const RUN_EVERY_MIN = Number(process.env.RUN_EVERY_MIN || 5);
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
+const app = express();
+app.set("trust proxy", 1);
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use("/api", rateLimit({ windowMs: 15 * 60 * 1000, max: 600, standardHeaders: true, legacyHeaders: false }));
+app.use(express.json({ limit: "100kb" }));
 
-  // Trust the proxy headers (X-Forwarded-For) from the AI Studio infrastructure
-  app.set("trust proxy", 1);
+const broker = new BrokerService();
+let storePromise: Promise<Store> | null = null;
+const store = () => (storePromise ??= openStore(() => adminDb));
 
-  // 1. SECURITY HEADERS (Protects against XSS, Clickjacking, etc.)
-  app.use(helmet({
-    contentSecurityPolicy: false, // Disabled for Vite dev server compatibility
-  }));
-
-  // 2. RATE LIMITING (Protects against DoS and Brute Force)
-  const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 1000, // Increased to 1000 to allow frequent polling (5s interval) and multiple users
-    standardHeaders: true,
-    legacyHeaders: false,
-    validate: { xForwardedForHeader: false },
-    message: "Too many requests from this IP, please try again later.",
-  });
-  app.use("/api", limiter);
-
-  app.use(express.json());
-
-  const synthesizer = new Synthesizer();
-  const broker = new BrokerService();
-  const riskManager = new RiskManager();
-
-  // Ledger State
-  let lastBlockHash = "0";
-  let blockIndex = 0;
-
-  // Memory Chain State
-  let lastLessonHash = "0";
-  let lessonIndex = 0;
-
-  // Initialize Ledger from Firestore
-  const initLedger = async () => {
-    try {
-      const snapshot = await adminDb.collection("ledger").orderBy("index", "desc").limit(1).get();
-      if (!snapshot.empty) {
-        const lastBlock = snapshot.docs[0].data() as AuditBlock;
-        lastBlockHash = lastBlock.hash;
-        blockIndex = lastBlock.index + 1;
-        console.log(`[LEDGER] Resumed from block ${lastBlock.index}. Hash: ${lastBlockHash}`);
-      } else {
-        console.log("[LEDGER] Genesis block required. Initializing...");
-        const genesis = LedgerService.createBlock({ msg: "Genesis Block" }, "SYSTEM", "0", 0);
-        await adminDb.collection("ledger").add(genesis);
-        lastBlockHash = genesis.hash;
-        blockIndex = 1;
-      }
-    } catch (err: any) {
-      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
-        console.warn("[LEDGER] Permission Denied (Vercel Node restriction). Ledger is running in volatile memory.");
-      } else {
-        console.error("[LEDGER] Initialization failed:", err);
-      }
-    }
-  };
-
-  // Initialize Config from Firestore
-  const syncConfig = async () => {
-    try {
-      const doc = await adminDb.collection("config").doc("main").get();
-      if (doc.exists) {
-        const config = doc.data();
-        if (config?.brokerClientId && config?.brokerAccessToken) {
-          broker.refreshConfig(config.brokerClientId, config.brokerAccessToken);
-          currentState.isBrokerConnected = broker.getStatus().connected;
-          console.log(`[CONFIG] Broker keys synced from Firestore. Status: ${currentState.isBrokerConnected}`);
-        }
-      }
-    } catch (err: any) {
-      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
-        // Silently fail config sync if permissions are missing; the frontend will provide keys via the sync logic
-      } else {
-        console.error("[CONFIG] Sync failed:", err);
-      }
-    }
-  };
-
-  const syncLessons = async () => {
-    try {
-      const snapshot = await adminDb.collection("lessons").orderBy("index", "desc").limit(5).get();
-      if (!snapshot.empty) {
-        const lessons = snapshot.docs.map(doc => doc.data() as Lesson);
-        currentState.lessons = lessons;
-        lastLessonHash = lessons[0].hash;
-        lessonIndex = lessons[0].index + 1;
-      }
-    } catch (err) {
-      // Permission issues on Vercel are ignored
-    }
-  };
-
-  const syncPersistentState = async () => {
-    try {
-      const doc = await adminDb.collection("state").doc("current").get();
-      if (doc.exists) {
-        const savedState = doc.data();
-        if (savedState) {
-          currentState.agentReports = savedState.agentReports || [];
-          currentState.bfsiReport = savedState.bfsiReport || null;
-          currentState.apexSignals = savedState.apexSignals || [];
-          currentState.marketBiasScore = savedState.marketBiasScore || 0;
-          currentState.consensus = savedState.consensus || "WAIT";
-          console.log("[STATE] Persistent intelligence state restored from Firestore.");
-        }
-      }
-    } catch (err) {
-      // Ignore sync errors
-    }
-  };
-
-  const persistState = async () => {
-    try {
-      await adminDb.collection("state").doc("current").set({
-        agentReports: currentState.agentReports,
-        bfsiReport: currentState.bfsiReport,
-        apexSignals: currentState.apexSignals,
-        marketBiasScore: currentState.marketBiasScore,
-        consensus: currentState.consensus,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (err) {
-      // Ignore persistence errors
-    }
-  };
-
-  await initLedger();
-  await syncConfig();
-  await syncLessons();
-  await syncPersistentState();
-
-  const persistBlock = async (data: any, type: AuditBlock['type']) => {
-    const block = LedgerService.createBlock(data, type, lastBlockHash, blockIndex);
-    try {
-      await adminDb.collection("ledger").add(block);
-      lastBlockHash = block.hash;
-      blockIndex++;
-      return block;
-    } catch (err: any) {
-      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
-        // Silently fail persistence if on Vercel Node without service account
-        lastBlockHash = block.hash;
-        blockIndex++;
-        return block;
-      } else {
-        console.error("[LEDGER] Persistence failed:", err);
-        return null;
-      }
-    }
-  };
-
-  // 3. CIRCUIT BREAKER & KILL SWITCH
-  let tradesToday = 0;
-  const MAX_TRADES_PER_DAY = 3;
-  let isKillSwitchActive = false;
-
-  const addLog = (msg: string, type: "system" | "agent" | "market" | "success" | "error" = "system") => {
-    currentState.logs = [{ time: new Date().toLocaleTimeString(), msg, type }, ...currentState.logs].slice(0, 50);
-    console.log(`[${type.toUpperCase()}] ${msg}`);
-  };
-
-  let currentState: EngineState = {
-    currentTime: new Date().toISOString(),
-    isMarketOpen: false,
-    phase: "INITIALIZING",
-    agentReports: [],
-    bfsiReport: null,
-    apexSignals: [],
-    marketBiasScore: 0,
-    consensus: "WAIT",
-    fibLevels: null,
-    lastHash: "0",
-    logs: [{ time: new Date().toLocaleTimeString(), msg: "Security Shield Active", type: "system" }],
-    trades: [],
-    lessons: [],
-    isSimulating: false,
-    isBrokerConnected: broker.getStatus().connected,
-    isSafetyOn: broker.getStatus().safety,
-    brokerMode: broker.getStatus().mode
-  };
-
-  if (currentState.isBrokerConnected) {
-    addLog("LIVE BROKER CONNECTED: Real Execution Enabled.", "success");
-  } else {
-    addLog("BROKER SIMULATION MODE: API keys missing in .env", "system");
+// ---------------------------------------------------------------- auth
+async function requireOwner(req: Request, res: Response, next: NextFunction) {
+  const m = /^Bearer (.+)$/.exec(req.headers.authorization || "");
+  if (!m) return res.status(401).json({ error: "Sign in required" });
+  try {
+    const tok = await adminAuth.verifyIdToken(m[1]);
+    if (!tok.email_verified || (tok.email || "").toLowerCase() !== ADMIN_EMAIL) return res.status(403).json({ error: "Not allowed" });
+    next();
+  } catch {
+    res.status(401).json({ error: "Session expired, sign in again" });
   }
-
-  // Mock OHLCV for 9:15-9:45 AM
-  const mockORBData = {
-    open: 22000,
-    high: 22150,
-    low: 21950,
-    close: 22100,
-    volume: 1000000,
-    timestamp: new Date().toISOString(),
-  };
-
-  const runEngineCycle = async (force: boolean = false) => {
-    if (isKillSwitchActive) {
-      addLog("ENGINE HALTED: Kill Switch is Active.", "error");
-      return;
-    }
-
-    const now = new Date();
-    const { isOpen, phase } = synthesizer.getMarketStatus(now);
-    
-    currentState.currentTime = now.toISOString();
-    currentState.isMarketOpen = isOpen || currentState.isSimulating;
-    
-    // If simulating, override phase to allow execution loop to trigger
-    const isSimulating = currentState.isSimulating;
-    const effectivePhase = (force || isSimulating) ? "TRADING_ACTIVE" : phase;
-    currentState.phase = force ? "SIMULATION_ACTIVE" : (isSimulating ? "SIMULATION_ACTIVE" : phase);
-
-    // Heartbeat logic for feedback
-    if (now.getSeconds() % 30 === 0) {
-      if (effectivePhase === "MARKET_CLOSED") {
-        addLog("SYSTEM: Market Closed. Standing by for 9:15 AM IST.", "system");
-      } else if (effectivePhase === "TRADING_ACTIVE" && !currentState.fibLevels) {
-        addLog("BRAIN: Market Active. Awaiting ORB Formation (9:45 AM IST)...", "system");
-      }
-    }
-
-    if (!force && !currentState.isSafetyOn && currentState.consensus === "WAIT" && effectivePhase === "TRADING_ACTIVE") {
-      if (now.getSeconds() % 15 === 0) {
-        addLog("LIVE MODE ACTIVE: Waiting for Intelligence Swarm Consensus...", "system");
-      }
-    }
-
-    // Reset daily counters
-    if (phase === "MARKET_CLOSED" && !force && !isSimulating) {
-      tradesToday = 0;
-    }
-
-    // Agent polling is now handled by the frontend to comply with security guidelines.
-    // The server evaluates the results received via /api/update-agents.
-
-    // Run Seed Logic: Calculate ORB Levels once per day (or on reset)
-    // We calculate levels as soon as market is active, WITHOUT waiting for consensus
-    if (force || (effectivePhase === "TRADING_ACTIVE" && !currentState.fibLevels)) {
-      addLog("CALCULATING: Establishing ORB Levels for Current Session...", "market");
-      
-      const levels = calculateORBLevels(mockORBData, 120);
-      if (!levels) {
-        addLog("ANOMALY: Level Calculation Matrix Failure", "error");
-        return;
-      }
-      currentState.fibLevels = levels;
-      addLog(`LEVELS SET: Entry(L1): ${levels.level1} | Protect(L0): ${levels.level0}`, "success");
-    }
-
-    // Execution Logic: Scan for breakouts whenever levels exist
-    // Even if consensus is WAIT, we scan but don't execute yet
-    if (effectivePhase === "TRADING_ACTIVE" && currentState.fibLevels) {
-      // HEARTBEAT
-      if (now.getSeconds() % 15 === 0) {
-        const statusMsg = currentState.consensus === "WAIT" 
-          ? "AWAITING AGENT ANALYSIS: Swarm intelligence not yet synchronized."
-          : `MONITORING: Seeking ${currentState.consensus} triggers across indices.`;
-        addLog(`ENGINE: ${statusMsg}`, "market");
-      }
-
-      if (currentState.consensus === "WAIT") return;
-
-      if (tradesToday >= MAX_TRADES_PER_DAY) {
-        if (now.getSeconds() % 60 === 0) {
-          addLog("CIRCUIT BREAKER: Daily trade limit reached.", "error");
-        }
-        return;
-      }
-
-      const isBullish = currentState.marketBiasScore > 0;
-      const symbolsToTrade = ["NIFTY 50", "NIFTY BANK", "SENSEX", "NIFTY MIDCAP SELECT"];
-      const levels = currentState.fibLevels;
-
-      for (const baseSymbol of symbolsToTrade) {
-        // Multi-Index Filter: Conditional thresholds to ensure engine activity
-        if (!currentState.isSimulating) {
-          if (baseSymbol === "NIFTY BANK" && Math.abs(currentState.marketBiasScore) < 0.5) continue;
-          if (baseSymbol === "SENSEX" && Math.abs(currentState.marketBiasScore) < 1.0) continue;
-        }
-
-        const entry = isBullish ? levels.level1 : levels.level0;
-        const stopLoss = isBullish ? levels.level0 : levels.level1;
-        const target = isBullish ? levels.level2 : levels.levelMinus1;
-
-        const quantity = riskManager.calculatePositionSize(entry, stopLoss);
-
-        if (quantity > 0) {
-          const instrument = broker.getTradableInstrument(baseSymbol);
-          
-          // Prevent multiple entries for the same symbol in one session
-          const alreadyTraded = currentState.trades.some(t => t.symbol === instrument && new Date(t.time).toDateString() === new Date().toDateString());
-          if (alreadyTraded && !force) continue;
-
-          addLog(`Executing ${isBullish ? "BUY" : "SELL"} order for ${quantity} lots of ${instrument}`, "success");
-          
-          try {
-            const response = await broker.placeBracketOrder({
-              symbol: instrument,
-              transactionType: isBullish ? "BUY" : "SELL",
-              orderType: "LIMIT",
-              quantity,
-              price: entry,
-              stopLoss,
-              target,
-              isBracketOrder: true
-            });
-            
-            tradesToday++;
-            
-            // Log trade to the state
-            currentState.trades = [{
-              time: new Date().toISOString(),
-              symbol: instrument,
-              type: isBullish ? "BUY" : "SELL",
-              qty: quantity,
-              price: entry,
-              status: response.status
-            } as Trade, ...currentState.trades].slice(0, 10);
-
-            addLog(`Broker Response: ${response.status} - ID: ${response.orderId}`, "success");
-          } catch (err) {
-            addLog(`Broker Execution Failed for ${instrument}: Connection Error`, "error");
-          }
-        }
-      }
-    }
-
-    if (phase === "MARKET_CLOSED" && !force) {
-      currentState.agentReports = [];
-      currentState.fibLevels = null;
-      currentState.consensus = "WAIT";
-    }
-  };
-
-  // Engine Loop
-  setInterval(() => runEngineCycle(false), 5000);
-
-  // API Routes
-  app.post("/api/simulate", async (req, res) => {
-    if (isKillSwitchActive) return res.status(403).json({ error: "System Halted" });
-    currentState.isSimulating = true;
-    addLog("MANUAL SIMULATION TRIGGERED", "system");
-    // Frontend will trigger agents for simulation
-    res.json({ status: "Simulation mode active. Please trigger agents from frontend." });
-  });
-
-  app.post("/api/update-agents", async (req, res) => {
-    if (isKillSwitchActive) return res.status(403).json({ error: "System Halted" });
-    
-    const { reports, bfsiReport, apexSignals, eventReport } = req.body;
-    
-    try {
-      addLog("Received Agent Reports from Secure Frontend Channel", "system");
-      
-      // Persist to Blockchain Ledger
-      await persistBlock({ reports, bfsiReport, apexSignals, eventReport }, "AGENT");
-      
-      currentState.agentReports = reports;
-      currentState.bfsiReport = bfsiReport;
-      currentState.apexSignals = apexSignals;
-      currentState.lastHash = lastBlockHash;
-
-      currentState.marketBiasScore = synthesizer.evaluatePreMarketBias(apexSignals, bfsiReport);
-      addLog(`Global Bias Evaluated: ${currentState.marketBiasScore.toFixed(2)}`, "agent");
-      
-      // Significantly lowered threshold to ensure action
-      if (bfsiReport.triggerFibLogic || Math.abs(currentState.marketBiasScore) > 0.05) {
-        currentState.consensus = synthesizer.calculateConsensus(reports);
-        addLog(`Consensus Reached: ${currentState.consensus}`, "success");
-      } else {
-        // Fallback to MEAN_REVERSION if strictly not biased but agents active
-        currentState.consensus = reports.length > 0 ? "MEAN_REVERSION" : "WAIT";
-        addLog(`System using ${currentState.consensus} stance (Low Bias: ${currentState.marketBiasScore.toFixed(2)})`, "system");
-      }
-
-      await persistState();
-
-      res.json({ status: "Agents updated", consensus: currentState.consensus });
-    } catch (err) {
-      addLog(`Agent Update Processing Failed: ${err instanceof Error ? err.message : "Unknown Error"}`, "error");
-      res.status(500).json({ error: "Processing failed" });
-    }
-  });
-
-  app.post("/api/kill", (req, res) => {
-    isKillSwitchActive = true;
-    currentState.consensus = "WAIT";
-    addLog("EMERGENCY KILL SWITCH ACTIVATED", "error");
-    res.json({ status: "System Halted" });
-  });
-
-  app.post("/api/broker/safety", (req, res) => {
-    const { safety } = req.body;
-    broker.toggleSafety(safety);
-    const status = broker.getStatus();
-    currentState.isSafetyOn = status.safety;
-    currentState.brokerMode = status.mode;
-    
-    // CRITICAL: Clear state when going LIVE to force the engine to re-run its logic immediately
-    if (!safety) {
-       currentState.fibLevels = null;
-       currentState.consensus = "WAIT";
-       addLog("ENTERING LIVE MODE: Calibrating logic for fresh market pulse...", "system");
-    }
-    
-    addLog(`BROKER SAFETY ${safety ? 'ON' : 'OFF'} - Mode: ${status.mode}`, "system");
-    res.json(status);
-  });
-
-  app.post("/api/sync-memory", async (req, res) => {
-    await syncLessons();
-    res.json({ status: "Memory Synced", lessons: currentState.lessons });
-  });
-
-  app.post("/api/broker/sync", async (req, res) => {
-    try {
-      // We first try to sync from Firestore
-      await syncConfig();
-      
-      // If the request body contains keys, we use those as an override/backup
-      const { clientId, accessToken } = req.body;
-      if (clientId && accessToken) {
-        broker.refreshConfig(clientId, accessToken);
-        currentState.isBrokerConnected = broker.getStatus().connected;
-      }
-
-      res.json({ 
-        status: "Sync completed", 
-        connected: currentState.isBrokerConnected,
-        mode: currentState.brokerMode
-      });
-    } catch (err) {
-      console.error("[SERVER] Sync route error:", err);
-      res.status(500).json({ error: "Sync failed" });
-    }
-  });
-
-  app.post("/api/broker/config", async (req, res) => {
-    // This route is now a legacy proxy for the client-side write
-    res.status(410).json({ error: "Use /api/broker/sync instead" });
-  });
-
-  app.post("/api/reset", (req, res) => {
-    isKillSwitchActive = false;
-    currentState = {
-      ...currentState,
-      agentReports: [],
-      bfsiReport: null,
-      apexSignals: [],
-      marketBiasScore: 0,
-      consensus: "WAIT",
-      fibLevels: null,
-      isSimulating: false,
-      logs: [{ time: new Date().toLocaleTimeString(), msg: "System Reset & Shield Restored", type: "system" }]
-    };
-    res.json({ status: "System reset" });
-  });
-
-  // API Routes
-  app.get("/api/engine-state", (req, res) => {
-    res.json(currentState);
-  });
-
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
-  });
-
-  // API 404 Handler - Prevents falling through to SPA fallback
-  app.use("/api/*", (req, res) => {
-    res.status(404).json({ 
-      error: "API Route Not Found", 
-      path: req.originalUrl 
-    });
-  });
-
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
-  }
-
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Confluence Engine running on http://localhost:${PORT}`);
-  });
 }
 
-startServer();
+function requireCron(req: Request, res: Response, next: NextFunction) {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers.authorization === `Bearer ${secret}`) return next();
+  res.status(401).json({ error: "Unauthorized" });
+}
+
+// ---------------------------------------------------------------- engine
+let running: Promise<void> | null = null;
+let lastError: string | null = null;
+let ledgerHead: { hash: string; index: number } | null = null;
+
+async function audit(st: Store, type: "TRADE" | "SYSTEM", data: unknown) {
+  if (st.kind !== "firestore") return;
+  try {
+    if (!ledgerHead) {
+      const snap = await adminDb.collection("ledger").orderBy("index", "desc").limit(1).get();
+      ledgerHead = snap.empty ? { hash: "0", index: 0 } : { hash: snap.docs[0].data().hash, index: snap.docs[0].data().index + 1 };
+    }
+    const block = LedgerService.createBlock(data, type, ledgerHead.hash, ledgerHead.index);
+    await adminDb.collection("ledger").add(block);
+    ledgerHead = { hash: block.hash, index: block.index + 1 };
+  } catch (e) {
+    console.warn("[LEDGER]", e instanceof Error ? e.message : e);
+  }
+}
+
+function briefDue(meta: Meta, now: number): boolean {
+  if (!process.env.ANTHROPIC_API_KEY) return false;
+  const ist = new Date(now + 5.5 * 3600000);
+  const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  const inWindow = (mins >= 8 * 60 + 30 && mins < 9 * 60 + 10) || (mins >= 15 * 60 + 40 && mins < 17 * 60);
+  const last = meta.brief?.at ? Date.parse(meta.brief.at) : 0;
+  return inWindow && now - last > 3 * 3600000;
+}
+
+async function cycle(opts: { forceBrief?: boolean } = {}): Promise<void> {
+  if (running) return running;
+  running = (async () => {
+    const st = await store();
+    const loaded = await st.load();
+    const { meta, ...state } = loaded;
+    const now = Date.now();
+    const changes = await runCycle(state as BrainState, now);
+    const liveUpdates = await mirrorLive(changes.trades, state.trades, { envEnabled: ENV_LIVE, ownerEnabled: !!meta.liveEnabled, killSwitch: !!meta.killSwitch }, broker, now);
+    for (const t of liveUpdates) {
+      state.trades[t.id] = t;
+      const i = changes.trades.findIndex((x) => x.id === t.id);
+      if (i >= 0) changes.trades[i] = t; else changes.trades.push(t);
+    }
+    await st.save(state as BrainState, changes);
+    for (const t of changes.trades) if (t.status === "open" || t.status === "closed") await audit(st, "TRADE", t);
+    if (opts.forceBrief || briefDue(meta, now)) {
+      try {
+        const brief = await writeBrief(state as BrainState);
+        if (brief) await st.saveMeta({ brief });
+      } catch (e) {
+        console.warn("[BRIEF]", e instanceof Error ? e.message : e);
+      }
+    }
+    lastError = null;
+  })()
+    .catch((e) => { lastError = e instanceof Error ? e.message : String(e); console.error("[ENGINE]", e); })
+    .finally(() => { running = null; });
+  return running;
+}
+
+// ---------------------------------------------------------------- routes
+app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+
+app.get("/api/state", requireOwner, async (_req, res) => {
+  const st = await store();
+  const { meta, ...state } = await st.load();
+  const preds = Object.values(state.predictions).sort((a, b) => b.session.localeCompare(a.session) || a.instrument.localeCompare(b.instrument)).slice(0, 600);
+  res.json({
+    lastRun: state.lastRun, notes: state.notes, lastError, running: !!running,
+    levels: state.levels, predictions: preds, trades: Object.values(state.trades),
+    brief: meta.brief || null, killSwitch: !!meta.killSwitch, liveEnabled: !!meta.liveEnabled,
+    envLive: ENV_LIVE, brokerConfigured: broker.isConfigured(), claudeConfigured: !!process.env.ANTHROPIC_API_KEY, claudeModel: CLAUDE_MODEL,
+    store: st.kind, risk: RISK, strategies: STRATEGIES, instruments: INSTRUMENTS.map((i) => ({ name: i.name, market: i.market, live: !!i.dhan })),
+  });
+});
+
+app.post("/api/run", requireOwner, async (_req, res) => { await cycle(); res.json({ ok: !lastError, error: lastError }); });
+
+app.post("/api/brief", requireOwner, async (_req, res) => {
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: "ANTHROPIC_API_KEY is not set on the server" });
+  await cycle({ forceBrief: true });
+  res.json({ ok: !lastError, error: lastError });
+});
+
+app.post("/api/kill", requireOwner, async (req, res) => {
+  const on = req.body?.on !== false;
+  const st = await store();
+  await st.saveMeta(on ? { killSwitch: true, liveEnabled: false } : { killSwitch: false });
+  await audit(st, "SYSTEM", { event: on ? "kill switch on" : "kill switch off" });
+  res.json({ killSwitch: on });
+});
+
+app.post("/api/live", requireOwner, async (req, res) => {
+  const enabled = req.body?.enabled === true;
+  if (enabled && !ENV_LIVE) return res.status(400).json({ error: "Live trading is disabled on the server (LIVE_TRADING_ENABLED is not true)" });
+  if (enabled && !broker.isConfigured()) return res.status(400).json({ error: "Dhan keys are not set on the server" });
+  const st = await store();
+  const { meta } = await st.load();
+  if (enabled && meta.killSwitch) return res.status(400).json({ error: "Turn the kill switch off first" });
+  await st.saveMeta({ liveEnabled: enabled });
+  await audit(st, "SYSTEM", { event: enabled ? "live on" : "live off" });
+  res.json({ liveEnabled: enabled });
+});
+
+// Vercel Cron (or any scheduler) calls this with "Authorization: Bearer <CRON_SECRET>"
+app.get("/api/cron", requireCron, async (_req, res) => { await cycle(); res.json({ ok: !lastError, error: lastError }); });
+
+app.use("/api/*", (req, res) => res.status(404).json({ error: "API route not found", path: req.originalUrl }));
+
+// ---------------------------------------------------------------- start
+async function start() {
+  if (process.env.NODE_ENV !== "production") {
+    const { createServer } = await import("vite");
+    const vite = await createServer({ server: { middlewareMode: true }, appType: "spa" });
+    app.use(vite.middlewares);
+  } else {
+    const dist = path.join(process.cwd(), "dist");
+    app.use(express.static(dist));
+    app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
+  }
+  const port = Number(process.env.PORT || 3000);
+  app.listen(port, "0.0.0.0", () => console.log(`Confluence Engine on http://localhost:${port} (store: lazy, live env: ${ENV_LIVE})`));
+  // Always-on hosts: run the brain on a timer. (Serverless hosts use /api/cron instead.)
+  setTimeout(() => cycle(), 5000);
+  setInterval(() => cycle(), RUN_EVERY_MIN * 60000);
+}
+
+if (!process.env.VERCEL) start();
+
+export default app;
