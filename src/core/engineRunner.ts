@@ -9,7 +9,7 @@
 
 import { reviewTrade } from "./review.js";
 import {
-  DailyBar, IntradayBar, PaperTrade, buildContext, signalsAtOpen, nightOdds, openOdds, newTrade, advanceTrade, Market,
+  DailyBar, IntradayBar, PaperTrade, buildContext, signalsAtOpen, nightOdds, openOdds, newTrade, advanceTrade, Market, usMoveFrom, UsMove,
 } from "./brain.js";
 import { INSTRUMENTS, Instrument, START_DATE, sessionBounds, nextSession, nightCallGraceMs, sessionTz } from "./instruments.js";
 import { fetchDaily, fetchIntraday, dateIn } from "../services/marketData.js";
@@ -119,6 +119,14 @@ export async function runCycle(
   const notes: string[] = [];
   const quotes: Record<string, Quote> = {};
 
+  // Overnight US move for Indian night-before calls (S&P 500 sessions completed by `now`)
+  const spInst = INSTRUMENTS.find((i) => i.symbol === "^GSPC")!;
+  let usMove: UsMove | undefined, usPendingBefore: string | null = null;
+  try {
+    const sp = (await fetchers.daily(spInst.symbol)).bars.filter((b) => now >= sessionBounds(spInst, b.date).end);
+    if (sp.length > 300) { usMove = usMoveFrom(sp); usPendingBefore = nextSession(spInst, sp[sp.length - 1].date); }
+  } catch { /* fall back to yesterday's close position alone */ }
+
   const putTrade = (t: PaperTrade) => {
     const before = state.trades[t.id];
     if (!before || JSON.stringify(before) !== JSON.stringify(t)) { state.trades[t.id] = t; changedTrades.set(t.id, t); }
@@ -209,8 +217,11 @@ export async function runCycle(
     const nxt = nextSession(inst, last.date);
     const ctxN = buildContext(done, nxt);
     if (ctxN) {
-      const odds = nightOdds(done, ctxN);
-      if (now < sessionBounds(inst, nxt).start + nightCallGraceMs(inst)) {
+      const indian = inst.session === "IN";
+      const odds = nightOdds(done, ctxN, indian ? usMove : undefined);
+      // Indian calls wait for the US session that ends before the Indian open, so they can use its move
+      const usStillOpen = indian && usMove !== undefined && usPendingBefore !== null && usPendingBefore < nxt;
+      if (!usStillOpen && now < sessionBounds(inst, nxt).start + nightCallGraceMs(inst)) {
         addPred(makePrediction(nxt, inst, "N_H", odds.highBreaks, now));
         addPred(makePrediction(nxt, inst, "N_L", odds.lowBreaks, now));
       }

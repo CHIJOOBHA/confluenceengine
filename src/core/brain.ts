@@ -169,11 +169,23 @@ const BINS = {
   dLevel: [-9, 0, 0.1, 0.2, 0.3, 0.45, 0.6, 0.8, 1.1, 9],
   gap: [0, 0.05, 0.1, 0.15, 0.25, 0.35, 0.5, 0.75, 1, 9],
   dC: [-9, -1, -0.6, -0.4, -0.25, -0.12, 0, 0.12, 0.25, 0.4, 0.6, 1, 9],
+  us: [-1, -0.01, -0.003, 0.003, 0.01, 1], // overnight S&P 500 move (fraction)
 };
 
-interface Row { clv: number; dH: number; dL: number; g: number; dC: number; E1: boolean; E2: boolean; E3: boolean; E4: boolean }
+/** Overnight US move for an Indian session date: the S&P 500's last completed daily return before that date. */
+export type UsMove = (date: string) => number | null;
+export function usMoveFrom(sp: DailyBar[]): UsMove {
+  const d = sp.map((b) => b.date), c = sp.map((b) => b.close);
+  return (date: string) => {
+    let lo = 0, hi = d.length - 1, k = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (d[m] < date) { k = m; lo = m + 1; } else hi = m - 1; }
+    return k >= 1 ? c[k] / c[k - 1] - 1 : null;
+  };
+}
 
-function historyRows(history: DailyBar[]): Row[] {
+interface Row { clv: number; dH: number; dL: number; g: number; dC: number; us: number; E1: boolean; E2: boolean; E3: boolean; E4: boolean }
+
+function historyRows(history: DailyBar[], us?: UsMove): Row[] {
   const rows: Row[] = [];
   for (let i = 11; i < history.length; i++) {
     const p = history[i - 1], b = history[i];
@@ -187,6 +199,7 @@ function historyRows(history: DailyBar[]): Row[] {
       dL: (b.open - p.low) / adr,
       g: Math.abs(dC),
       dC,
+      us: us ? us(b.date) ?? NaN : NaN,
       E1: b.high >= p.high,
       E2: b.low <= p.low,
       E3: dC >= 0 ? b.low <= p.close : b.high >= p.close,
@@ -212,6 +225,17 @@ function binProb(rows: Row[], key: keyof Row, ev: keyof Row, edges: number[], v:
   return n >= 10 ? (hits + 1) / (n + 2) : null;
 }
 
+/** Like binProb, but two inputs at once (both bins must match). */
+function binProb2(rows: Row[], k1: keyof Row, e1: number[], v1: number, k2: keyof Row, e2: number[], v2: number, ev: keyof Row): number | null {
+  const a = binIndex(e1, v1), b = binIndex(e2, v2);
+  if (a < 0 || b < 0) return null;
+  let n = 0, hits = 0;
+  for (const r of rows) {
+    if (binIndex(e1, r[k1] as number) === a && binIndex(e2, r[k2] as number) === b) { n++; if (r[ev]) hits++; }
+  }
+  return n >= 10 ? (hits + 1) / (n + 2) : null;
+}
+
 export interface Odds {
   highBreaks: number | null; // yesterday's high gets taken out today
   lowBreaks: number | null;
@@ -219,15 +243,18 @@ export interface Odds {
   closesAbovePDC: number | null;
 }
 
-/** Night-before odds (open unknown) from history before ctx.date. */
-export function nightOdds(history: DailyBar[], ctx: SessionContext): Odds {
-  const rows = historyRows(history.filter((b) => b.date < ctx.date));
-  return {
-    highBreaks: binProb(rows, "clv", "E1", BINS.clv, ctx.clv),
-    lowBreaks: binProb(rows, "clv", "E2", BINS.clv, ctx.clv),
-    gapFills: null,
-    closesAbovePDC: null,
-  };
+/**
+ * Night-before odds (open unknown) from history before ctx.date.
+ * With `us` (Indian markets), the call also uses the overnight S&P 500 move: in 10 years of Nifty data
+ * it shifted the chance of breaking yesterday's high from 32% (US down) to 71% (US up) for mid-range
+ * closes, in both halves; walk-forward Brier improved 0.190 -> 0.182 (research/edge_tests.txt).
+ */
+export function nightOdds(history: DailyBar[], ctx: SessionContext, us?: UsMove): Odds {
+  const rows = historyRows(history.filter((b) => b.date < ctx.date), us);
+  const u = us ? us(ctx.date) : null;
+  const pick = (ev: "E1" | "E2") =>
+    (u !== null ? binProb2(rows, "clv", BINS.clv, ctx.clv, "us", BINS.us, u, ev) : null) ?? binProb(rows, "clv", ev, BINS.clv, ctx.clv);
+  return { highBreaks: pick("E1"), lowBreaks: pick("E2"), gapFills: null, closesAbovePDC: null };
 }
 
 /** Odds once the opening price is known. */
