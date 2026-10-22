@@ -28,13 +28,13 @@ export const LoginGate = ({ onLogin }: { onLogin: (user: any) => void }) => {
   };
 
   return (
-    <div className="min-h-screen bg-paper text-ink flex items-center justify-center px-4">
+    <div className="min-h-screen bg-canvas text-ink flex items-center justify-center px-4">
       <div className="w-full max-w-md text-center">
-        <RokiMark className="w-20 h-20 mx-auto" />
-        <h1 className="mt-6 font-display text-5xl font-bold tracking-tight">roki</h1>
-        <p className="mt-3 text-lg text-muted-foreground">An AI learning to trade, in public. Every prediction, every trade, every lesson.</p>
+        <RokiMark className="w-14 h-14 mx-auto" />
+        <h1 className="mt-5 text-[40px] leading-none font-semibold tracking-tight">roki</h1>
+        <p className="mt-3 text-[16px] text-ink-2 max-w-[36ch] mx-auto">An AI learning to trade, in public. Every prediction, every trade, every lesson.</p>
         <button onClick={signIn} disabled={loading}
-          className="btn-primary mt-8 w-full py-3.5 rounded-full text-base font-medium inline-flex items-center justify-center gap-3 disabled:opacity-60">
+          className="btn btn-primary btn-lg mt-8 w-full max-w-[320px]">
           <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
             <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
             <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
@@ -43,8 +43,8 @@ export const LoginGate = ({ onLogin }: { onLogin: (user: any) => void }) => {
           </svg>
           {loading ? "Signing in…" : "Sign in with Google"}
         </button>
-        {error && <p role="alert" className="mt-4 text-sm text-loss bg-loss-soft rounded-xl px-4 py-3">{error}</p>}
-        <p className="mt-10 text-xs text-muted-foreground">Paper money only. Nothing here is investment advice.</p>
+        {error && <p role="alert" className="mt-4 text-[14px] text-loss bg-loss-soft rounded-lg px-4 py-3">{error}</p>}
+        <p className="mt-10 text-[13px] text-ink-3">Paper money only. Nothing here is investment advice.</p>
       </div>
     </div>
   );

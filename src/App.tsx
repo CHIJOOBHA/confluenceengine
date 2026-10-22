@@ -1,293 +1,179 @@
 /**
- * ROKI - DASHBOARD
- * Shows what the brain sees and does: next-session levels and odds, calls and
- * their results, paper trades and P&L, the Claude brief, and the safety controls.
+ * ROKI - APP SHELL
+ * Sidebar navigation (drawer on phones), engine status and controls, and the pages.
+ * The page lives in the URL hash (#/review) so refresh and back keep your place.
  */
-
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RefreshCw, ShieldAlert, Sparkles, Activity, LogOut } from "lucide-react";
-import { EngineView, PaperTrade, Prediction } from "./types";
-import { RokiMark, RokiWordmark } from "./components/RokiMark";
-import { LoginGate } from "./components/LoginGate";
-import { SimulatorPanel } from "./components/SimulatorPanel";
-import { SimpleHome, RULE_NAME } from "./components/SimpleHome";
-import { TradeReview } from "./components/TradeReview";
+import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { ArrowLeftRight, BookOpenCheck, GraduationCap, LayoutDashboard, LogOut, Menu, RefreshCw, Ruler, ShieldAlert, ShieldCheck, Target, Wallet, X } from "lucide-react";
+import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { auth } from "./lib/firebase";
-import { onAuthStateChanged, signOut, User } from "firebase/auth";
+import type { EngineView } from "./types";
+import { LoginGate } from "./components/LoginGate";
+import { RokiMark } from "./components/RokiMark";
+import { Overview } from "./pages/Overview";
+import { Review } from "./pages/Review";
+import { Learning } from "./pages/Learning";
+import { Account } from "./pages/Account";
+import { Levels, Predictions, Rules, Trades } from "./pages/Data";
+import { inr, timeIST } from "./ui/kit";
 
 const ADMIN_EMAIL = "chijobha@gmail.com";
-const inr = (v: number) => `${v >= 0 ? "+" : "−"}Rs ${Math.abs(Math.round(v)).toLocaleString("en-IN")}`;
-const num = (v: number | null | undefined, d = 2) => (v === null || v === undefined || isNaN(v) ? "—" : v.toLocaleString("en-IN", { maximumFractionDigits: d, minimumFractionDigits: d }));
-const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${Math.round(v * 100)}%`);
-const time = (ms: number | null) => (ms ? new Date(ms).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—");
-const QUESTION: Record<string, string> = { N_H: "Night: high breaks?", N_L: "Night: low breaks?", O_G: "Open: gap fills?", O_C: "Open: closes above yesterday's close?" };
+type PageId = "overview" | "review" | "learning" | "predictions" | "account" | "trades" | "levels" | "rules";
+const NAV: { group: string; items: [PageId, string, ComponentType<{ className?: string }>][] }[] = [
+  { group: "", items: [["overview", "Overview", LayoutDashboard], ["review", "Trade review", BookOpenCheck], ["learning", "Learning", GraduationCap], ["predictions", "Predictions", Target]] },
+  { group: "Trading", items: [["account", "Options account", Wallet], ["trades", "Trades", ArrowLeftRight], ["levels", "Levels", Ruler]] },
+  { group: "System", items: [["rules", "Rules & safety", ShieldCheck]] },
+];
+const ALL = NAV.flatMap((g) => g.items.map(([id]) => id));
+const fromHash = (): PageId => { const h = window.location.hash.replace(/^#\/?/, "") as PageId; return ALL.includes(h) ? h : "overview"; };
 
-function Pill({ tone, children }: { tone: "gold" | "green" | "red" | "muted"; children: ReactNode }) {
-  const c = { gold: "bg-roki-soft text-roki", green: "bg-gain-soft text-gain", red: "bg-loss-soft text-loss", muted: "bg-muted text-muted-foreground" }[tone];
-  return <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${c}`}>{children}</span>;
+function useRoute(): [PageId, (p: PageId) => void] {
+  const [page, setPage] = useState<PageId>(fromHash);
+  useEffect(() => { const on = () => setPage(fromHash()); window.addEventListener("hashchange", on); return () => window.removeEventListener("hashchange", on); }, []);
+  return [page, (p) => { window.location.hash = `/${p}`; window.scrollTo({ top: 0 }); }];
 }
 
-function Signed({ v, suffix = "" }: { v: number | null; suffix?: string }) {
-  if (v === null || v === undefined) return <span className="text-muted-foreground">—</span>;
-  return <span className={v > 0 ? "text-gain" : v < 0 ? "text-loss" : ""}>{v > 0 ? "+" : ""}{v.toFixed(2)}{suffix}</span>;
-}
-
-/** Next Vercel cron run (vercel.json: 04:40, 10:10, 21:30 UTC, Mon-Fri), shown in IST. */
-function nextRunText(now = Date.now()): string {
-  const slots = [[4, 40], [10, 10], [21, 30]];
-  for (let d = 0; d < 8; d++) {
-    const day = new Date(now + d * 86400000);
-    if (day.getUTCDay() === 0 || day.getUTCDay() === 6) continue;
-    for (const [h, m] of slots) {
-      const t = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), h, m);
-      if (t > now) return new Date(t).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", hour: "numeric", minute: "2-digit" });
-    }
-  }
-  return "—";
+function SideNav({ page, go, view, onSignOut, extra }: { page: PageId; go: (p: PageId) => void; view: EngineView; onSignOut: () => void; extra?: ReactNode }) {
+  return (
+    <nav aria-label="Main" className="flex h-full flex-col">
+      <a href="#/overview" onClick={(e) => { e.preventDefault(); go("overview"); }} className="flex items-center gap-2.5 px-3 h-14 shrink-0" aria-label="Roki home">
+        <RokiMark className="w-7 h-7" />
+        <span className="text-[19px] font-semibold tracking-tight">roki</span>
+      </a>
+      <div className="flex-1 overflow-y-auto px-2 pb-4">
+        {NAV.map((g) => (
+          <div key={g.group || "main"} className="mt-3">
+            {g.group && <div className="px-3 pb-1 text-xs font-medium text-ink-3">{g.group}</div>}
+            <ul className="space-y-0.5">
+              {g.items.map(([id, label, Icon]) => {
+                const on = id === page;
+                return (
+                  <li key={id}>
+                    <a href={`#/${id}`} aria-current={on ? "page" : undefined} onClick={(e) => { e.preventDefault(); go(id); }}
+                      className={`flex items-center gap-2.5 h-9 px-3 rounded-md text-[14px] transition-colors ${on ? "bg-surface text-ink font-medium shadow-[0_0_0_1px_var(--line),0_1px_2px_rgb(16_24_40/.05)]" : "text-ink-2 hover:bg-sunken hover:text-ink"}`}>
+                      <Icon className={`w-[17px] h-[17px] ${on ? "text-roki" : ""}`} />{label}
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-line p-3 space-y-2">
+        <div className={`flex items-center gap-2 text-[13px] ${view.liveEnabled ? "text-loss" : "text-ink-2"}`}>
+          <span className={`w-2 h-2 rounded-full ${view.liveEnabled ? "bg-loss" : "bg-roki"}`} />{view.liveEnabled ? "Real orders on" : "Paper money only"}
+        </div>
+        {extra}
+        <button className="btn btn-ghost w-full justify-start px-2" onClick={onSignOut}><LogOut />Sign out</button>
+      </div>
+    </nav>
+  );
 }
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
-  const [authChecking, setAuthChecking] = useState(true);
+  const [checking, setChecking] = useState(true);
   const [view, setView] = useState<EngineView | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [drawer, setDrawer] = useState(false);
+  const [page, setPage] = useRoute();
+  const go = (p: PageId) => { setPage(p); setDrawer(false); };
 
-  useEffect(() => onAuthStateChanged(auth, (u) => {
-    setUser(u && u.email === ADMIN_EMAIL ? u : null);
-    setAuthChecking(false);
-  }), []);
+  useEffect(() => onAuthStateChanged(auth, (u) => { setUser(u && u.email === ADMIN_EMAIL ? u : null); setChecking(false); }), []);
 
   const api = useCallback(async (path: string, body?: object) => {
     const token = await auth.currentUser?.getIdToken();
-    const res = await fetch(path, {
-      method: body ? "POST" : "GET",
-      headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    const res = await fetch(path, { method: body ? "POST" : "GET", headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+    if (!res.ok) throw new Error(data.error || `The server answered ${res.status}. Try again in a minute.`);
     return data;
   }, []);
-
-  const refresh = useCallback(async () => {
-    try { setView(await api("/api/state")); setError(null); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-  }, [api]);
-
-  useEffect(() => {
-    if (!user) return;
-    refresh();
-    const t = setInterval(refresh, 30000);
-    return () => clearInterval(t);
-  }, [user, refresh]);
+  const refresh = useCallback(async () => { try { setView(await api("/api/state")); setError(null); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }, [api]);
+  useEffect(() => { if (!user) return; refresh(); const t = setInterval(refresh, 30000); return () => clearInterval(t); }, [user, refresh]);
+  useEffect(() => { document.title = view ? `${NAV.flatMap((g) => g.items).find(([id]) => id === page)?.[1]} · Roki` : "Roki"; }, [page, view]);
 
   const act = async (label: string, path: string, body: object = {}) => {
     setBusy(label);
     try { await api(path, body); await refresh(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(null); }
   };
 
-  const stats = useMemo(() => {
-    const trades = view?.trades || [];
-    const closed = trades.filter((t) => t.status === "closed");
-    const by = (mode: "active" | "shadow") => {
-      const c = closed.filter((t) => t.mode === mode);
-      return { n: c.length, wins: c.filter((t) => (t.retPct || 0) > 0).length, inr: c.reduce((s, t) => s + (t.pnlInr || 0), 0) };
-    };
-    const scored = (view?.predictions || []).filter((p) => p.result === "hit" || p.result === "miss");
-    const scorecard: Record<string, { hits: number; n: number }> = {};
-    for (const p of scored) {
-      const k = `${p.market}|${p.question}`;
-      scorecard[k] ??= { hits: 0, n: 0 };
-      scorecard[k].n++; if (p.result === "hit") scorecard[k].hits++;
-    }
-    return {
-      active: by("active"), shadow: by("shadow"),
-      open: trades.filter((t) => t.status === "open"),
-      closed: closed.sort((a, b) => (b.exitTime || 0) - (a.exitTime || 0)),
-      upcoming: (view?.predictions || []).filter((p) => p.result === "pending" && p.call).sort((a, b) => a.session.localeCompare(b.session) || a.instrument.localeCompare(b.instrument)),
-      hits: scored.filter((p) => p.result === "hit").length, scored: scored.length, scorecard,
-    };
-  }, [view]);
-
-  if (authChecking) return <div className="min-h-screen bg-obsidian" />;
+  if (checking) return <div className="min-h-screen bg-canvas" />;
   if (!user) return <LoginGate onLogin={setUser} />;
   if (!view) {
     return (
-      <div className="min-h-screen bg-paper text-ink flex flex-col items-center justify-center gap-4">
-        <RokiMark className="w-14 h-14 animate-pulse" />
-        <span className="text-sm text-muted-foreground">{error ? error : "Roki is getting today's numbers…"}</span>
+      <div className="min-h-screen bg-canvas flex flex-col items-center justify-center gap-3 px-4 text-center">
+        <RokiMark className="w-10 h-10" />
+        <p className="text-[14px] text-ink-2">{error ? error : "Loading Roki…"}</p>
+        {error && <button className="btn btn-secondary" onClick={refresh}><RefreshCw />Try again</button>}
       </div>
     );
   }
 
-  const btn = "btn-quiet px-3.5 py-2 text-sm font-medium rounded-full disabled:opacity-40 inline-flex items-center gap-2";
-  const updated = view.lastRun ? new Date(view.lastRun).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—";
+  const age = view.lastRun ? (Date.now() - Date.parse(view.lastRun)) / 60000 : Infinity;
+  const fresh = age < 12;
+  const pageEl = {
+    overview: <Overview view={view} />, review: <Review view={view} />, learning: <Learning view={view} />, predictions: <Predictions view={view} />,
+    account: <Account api={api} />, trades: <Trades view={view} />, levels: <Levels view={view} />, rules: <Rules view={view} />,
+  }[page];
+  const doSignOut = () => signOut(auth);
 
   return (
-    <div className="min-h-screen bg-paper text-ink font-sans selection:bg-roki/20">
-      <header className="sticky top-0 z-30 bg-paper/85 backdrop-blur border-b border-line">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
-          <RokiWordmark />
-          <span className="hidden md:inline text-sm text-muted-foreground border-l border-line pl-3">An AI learning to trade, in public</span>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <Pill tone="muted">Updated {updated}</Pill>
-            <Pill tone={view.liveEnabled ? "red" : "gold"}>{view.liveEnabled ? "Real orders on" : "Paper money only"}</Pill>
-            {view.killSwitch && <Pill tone="red">Kill switch on</Pill>}
+    <div className="min-h-screen bg-canvas">
+      <aside className="hidden lg:block fixed inset-y-0 left-0 w-60 border-r border-line bg-canvas">
+        <SideNav page={page} go={go} view={view} onSignOut={doSignOut} />
+      </aside>
+
+      {drawer && (
+        <div className="lg:hidden fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Menu">
+          <div className="absolute inset-0 bg-[rgb(10_12_20/.45)]" onClick={() => setDrawer(false)} />
+          <div className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-canvas border-r border-line shadow-xl">
+            <button className="btn btn-ghost absolute right-2 top-3 w-8 px-0" aria-label="Close menu" onClick={() => setDrawer(false)}><X /></button>
+            <SideNav page={page} go={go} view={view} onSignOut={doSignOut} extra={
+              <button className={`btn ${view.killSwitch ? "btn-secondary" : "btn-danger"} w-full`} disabled={!!busy} onClick={() => act("kill", "/api/kill", { on: !view.killSwitch })}><ShieldAlert />{view.killSwitch ? "Turn off kill switch" : "Kill switch"}</button>} />
           </div>
         </div>
-        <div className="max-w-6xl mx-auto px-4 pb-3 flex flex-wrap items-center gap-2">
-          <button className="btn-primary px-4 py-2 text-sm font-medium rounded-full disabled:opacity-40 inline-flex items-center gap-2" disabled={!!busy} onClick={() => act("run", "/api/run")}><RefreshCw className={`w-4 h-4 ${busy === "run" ? "animate-spin" : ""}`} />Run now</button>
-          {view.claudeConfigured && <button className={btn} disabled={!!busy} onClick={() => act("brief", "/api/brief")}><Sparkles className="w-4 h-4" />Write brief</button>}
-          <button className="neon-box-red px-3.5 py-2 text-sm font-medium rounded-full inline-flex items-center gap-2" disabled={!!busy} onClick={() => act("kill", "/api/kill", { on: !view.killSwitch })}>
-            <ShieldAlert className="w-4 h-4" />{view.killSwitch ? "Turn kill switch off" : "Kill switch"}
-          </button>
-          {view.envLive && view.brokerConfigured && (
-            <button className={`${view.liveEnabled ? "neon-box-emerald" : "neon-box-red"} px-3.5 py-2 text-sm font-medium rounded-full`}
-              disabled={!!busy} onClick={() => { if (view.liveEnabled || window.confirm("Send REAL Dhan orders? For each active Indian trade the app BUYS " + `${view.risk.optionLots} lot(s) of the at-the-money option (CE for a buy signal, PE for a sell signal). You can lose the whole premium (up to Rs ${view.risk.maxPremiumPerTradeInr} a trade). At most ${view.risk.maxLiveTradesPerDay} trade(s) a day; no new trades after a Rs ${view.risk.dailyLossLimitInr} loss.`)) act("live", "/api/live", { enabled: !view.liveEnabled }); }}>
-              {view.liveEnabled ? "Back to paper" : "Go live"}
-            </button>
+      )}
+
+      <div className="lg:pl-60">
+        <header className="sticky top-0 z-30 h-14 border-b border-line bg-[color-mix(in_srgb,var(--canvas)_88%,transparent)] backdrop-blur-md">
+          <div className="h-full max-w-[1200px] mx-auto px-4 md:px-8 flex items-center gap-3">
+            <button className="btn btn-ghost lg:hidden w-8 px-0 -ml-1" aria-label="Open menu" onClick={() => setDrawer(true)}><Menu /></button>
+            <span className="lg:hidden flex items-center gap-2"><RokiMark className="w-6 h-6" /><span className="font-semibold tracking-tight">roki</span></span>
+            <div className="hidden sm:flex items-center gap-2 text-[13px] text-ink-2" title={view.lastRun ? `Last engine run ${new Date(view.lastRun).toLocaleString("en-IN")}` : undefined}>
+              <span className="relative flex w-2 h-2">
+                {fresh && <span className="absolute inline-flex h-full w-full rounded-full bg-gain opacity-60 animate-ping" />}
+                <span className={`relative inline-flex w-2 h-2 rounded-full ${fresh ? "bg-gain" : "bg-ink-3"}`} />
+              </span>
+              {fresh ? "Engine running" : "Engine idle"} · updated {view.lastRun ? timeIST(Date.parse(view.lastRun)) : "—"}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              {view.killSwitch && <span className="badge badge-loss">Kill switch on</span>}
+              <button className={`btn ${view.killSwitch ? "btn-secondary" : "btn-danger"} hidden sm:inline-flex`} disabled={!!busy} onClick={() => act("kill", "/api/kill", { on: !view.killSwitch })}
+                title="Stops every new trade, paper and live, until you turn it off."><ShieldAlert />{view.killSwitch ? "Turn off kill switch" : "Kill switch"}</button>
+              {view.envLive && view.brokerConfigured && (
+                <button className={`btn ${view.liveEnabled ? "btn-secondary" : "btn-danger"}`} disabled={!!busy}
+                  onClick={() => { if (view.liveEnabled || window.confirm(`Send REAL Dhan orders?\n\nFor each counted Indian trade the app buys ${view.risk.optionLots} lot of the at-the-money option. You can lose the whole premium (up to ${inr(view.risk.maxPremiumPerTradeInr, false)} a trade). At most ${view.risk.maxLiveTradesPerDay} trade a day; no new trades after a ${inr(view.risk.dailyLossLimitInr, false)} loss.`)) act("live", "/api/live", { enabled: !view.liveEnabled }); }}>
+                  {view.liveEnabled ? "Back to paper" : "Go live"}
+                </button>
+              )}
+              <button className="btn btn-primary" disabled={!!busy} onClick={() => act("run", "/api/run")}><RefreshCw className={busy === "run" ? "animate-spin" : ""} />{busy === "run" ? "Running…" : "Run now"}</button>
+            </div>
+          </div>
+        </header>
+
+        <main className="max-w-[1200px] mx-auto px-4 md:px-8 py-6 md:py-8">
+          {(error || view.lastError) && (
+            <div role="alert" className="mb-4 rounded-lg border border-[color-mix(in_srgb,var(--loss)_30%,var(--line))] bg-loss-soft px-4 py-3 text-[14px] text-loss">{error || `Last engine run had a problem: ${view.lastError}`}</div>
           )}
-          <button className={`${btn} ml-auto`} onClick={() => signOut(auth)} aria-label="Sign out"><LogOut className="w-4 h-4" /><span className="hidden sm:inline">Sign out</span></button>
-        </div>
-        {(error || view.lastError) && <p className="max-w-6xl mx-auto px-4 pb-3 text-sm text-loss">{error || view.lastError}</p>}
-      </header>
-
-      <main className="max-w-6xl mx-auto px-4 py-6">
-      <Tabs defaultValue="home" className="w-full">
-        <TabsList className="flex flex-nowrap justify-start h-auto bg-surface border border-line rounded-full p-1 gap-1 mb-6 max-w-full w-fit overflow-x-auto">
-          {[["home", "Home"], ["review", "Trade review"], ["sim", "Options account"], ["trades", "All trades"], ["calls", "All calls"], ["next", "Levels"], ["rules", "Rules & safety"]].map(([v, l]) => (
-            <TabsTrigger key={v} value={v} className="flex-none px-4 py-2 text-sm font-medium rounded-full text-muted-foreground hover:text-ink data-active:bg-roki data-active:text-white data-active:shadow-none">{l}</TabsTrigger>
-          ))}
-        </TabsList>
-
-        <TabsContent value="home"><SimpleHome view={view} /></TabsContent>
-        <TabsContent value="review"><TradeReview view={view} /></TabsContent>
-
-        <TabsContent value="next">
-          <Card className="bg-card border-line">
-            <CardHeader><CardTitle className="font-display font-semibold text-xl">Next session</CardTitle>
-              <CardDescription>Yesterday's high (PDH), close (PDC) and low (PDL), the 10-day average range (ADR), and the night-before odds that each level breaks. Odds are how often it happened before, not certainties.</CardDescription></CardHeader>
-            <CardContent className="overflow-x-auto">
-              <Table><TableHeader><TableRow>
-                {["Session", "Instrument", "PDH", "PDC", "PDL", "ADR", "High breaks", "Low breaks", "Small-gap band", "Trade triggers"].map((h) => <TableHead key={h} className="text-xs whitespace-nowrap">{h}</TableHead>)}
-              </TableRow></TableHeader><TableBody>
-                {view.levels.map((l) => (
-                  <TableRow key={l.key}>
-                    <TableCell className="font-mono text-xs whitespace-nowrap">{l.session}</TableCell>
-                    <TableCell className="whitespace-nowrap">{l.instrument}<div className="text-xs text-muted-foreground">{l.market}</div></TableCell>
-                    <TableCell className="font-mono text-xs">{num(l.pdh)}</TableCell><TableCell className="font-mono text-xs">{num(l.pdc)}</TableCell><TableCell className="font-mono text-xs">{num(l.pdl)}</TableCell>
-                    <TableCell className="font-mono text-xs">{num(l.adr)}</TableCell>
-                    <TableCell className="font-mono text-xs">{pct(l.highBreaks)}</TableCell><TableCell className="font-mono text-xs">{pct(l.lowBreaks)}</TableCell>
-                    <TableCell className="font-mono text-[13px] whitespace-nowrap">{l.gapFillBand}</TableCell>
-                    <TableCell className="text-[13px] min-w-[260px]">{l.triggers}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody></Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="calls" className="grid gap-4">
-          <Card className="bg-card border-line">
-            <CardHeader><CardTitle className="font-display font-semibold text-xl">Scorecard</CardTitle><CardDescription>Calls are made only when the odds are 60% or more either way.</CardDescription></CardHeader>
-            <CardContent className="overflow-x-auto">
-              <Table><TableHeader><TableRow>{["Market", "Question", "Scored", "Right"].map((h) => <TableHead key={h} className="text-xs">{h}</TableHead>)}</TableRow></TableHeader><TableBody>
-                {(Object.entries(stats.scorecard) as [string, { hits: number; n: number }][]).sort().map(([k, v]) => { const [m, q] = k.split("|"); return (
-                  <TableRow key={k}><TableCell>{m}</TableCell><TableCell>{QUESTION[q]}</TableCell><TableCell className="font-mono">{v.n}</TableCell><TableCell className="font-mono">{pct(v.hits / v.n)}</TableCell></TableRow>); })}
-                {!stats.scored && <TableRow><TableCell colSpan={4} className="text-muted-foreground">No calls scored yet.</TableCell></TableRow>}
-              </TableBody></Table>
-            </CardContent>
-          </Card>
-          <Card className="bg-card border-line">
-            <CardHeader><CardTitle className="font-display font-semibold text-xl">Call log</CardTitle></CardHeader>
-            <CardContent className="overflow-x-auto max-h-[36rem] overflow-y-auto">
-              <Table><TableHeader><TableRow>{["Session", "Instrument", "Question", "Call", "Result", "What happened"].map((h) => <TableHead key={h} className="text-xs">{h}</TableHead>)}</TableRow></TableHeader><TableBody>
-                {view.predictions.map((p: Prediction) => (
-                  <TableRow key={p.key}>
-                    <TableCell className="font-mono text-xs whitespace-nowrap">{p.session}</TableCell><TableCell>{p.instrument}</TableCell><TableCell className="text-xs">{QUESTION[p.question]}</TableCell>
-                    <TableCell className="text-xs">{p.call}</TableCell>
-                    <TableCell><Pill tone={p.result === "hit" ? "green" : p.result === "miss" ? "red" : p.result === "pending" ? "gold" : "muted"}>{p.result}</Pill></TableCell>
-                    <TableCell className="font-mono text-[13px] whitespace-nowrap">{p.actual}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody></Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="trades">
-          <Card className="bg-card border-line">
-            <CardHeader><CardTitle className="font-display font-semibold text-xl">Closed paper trades</CardTitle><CardDescription>Active = rule tested positive in that market. Shadow = same rule elsewhere, kept for learning; never traded live.</CardDescription></CardHeader>
-            <CardContent className="overflow-x-auto max-h-[40rem] overflow-y-auto">
-              {stats.closed.length ? <TradeTable trades={stats.closed} /> : <p className="text-sm text-muted-foreground">No closed trades yet. Paper trading starts with the 22 Oct 2026 sessions.</p>}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="sim"><SimulatorPanel api={api} /></TabsContent>
-
-        <TabsContent value="rules" className="grid gap-4 md:grid-cols-2">
-          <Card className="bg-card border-line">
-            <CardHeader><CardTitle className="font-display font-semibold text-xl">Rules Roki trades</CardTitle><CardDescription>Each one made money in both halves of 5 years of testing in the markets marked active. Everything else that was tested and failed is not in the engine.</CardDescription></CardHeader>
-            <CardContent className="grid gap-3">
-              {(Object.entries(view.strategies) as [string, { description: string; activeMarkets: string[] }][]).map(([id, s]) => (
-                <div key={id} className="border border-line rounded-xl p-3">
-                  <div className="font-display text-sm font-semibold text-roki mb-1">{RULE_NAME[id] || id}</div>
-                  <p className="text-sm text-muted-foreground">{s.description}</p>
-                  <p className="text-[13px] text-muted-foreground mt-1">Active in: {s.activeMarkets.length ? s.activeMarkets.join(", ") : "none (shadow only)"}</p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-          <Card className="bg-card border-line">
-            <CardHeader><CardTitle className="font-display font-semibold text-xl">Safety</CardTitle></CardHeader>
-            <CardContent className="text-sm grid gap-2 text-muted-foreground">
-              <p><Activity className="inline w-4 h-4 mr-2 text-roki" />Live orders need all of: LIVE_TRADING_ENABLED=true on the server, Dhan keys on the server, your "Go live" click, kill switch off.</p>
-              <p>Only active trades in Indian indices and stocks are ever sent. US stocks, commodities and crypto stay paper.</p>
-              <p>Live orders buy {view.risk.optionLots} lot(s) of the at-the-money option (CE for buy signals, PE for sell signals) and sell it when Roki closes the trade, or at 3:10 pm · premium per trade at most Rs {view.risk.maxPremiumPerTradeInr} · backstop stop on the option at -{view.risk.optionBackstopPct}% · at most {view.risk.maxLiveTradesPerDay} live trade(s) a day · no new trades after a Rs {view.risk.dailyLossLimitInr} loss.</p>
-              <p>If one lot would risk more than the limit, the live order is not sent (the paper trade still runs).</p>
-              <p className="text-muted-foreground text-xs">Paper trading is research. Results so far are small samples; nothing here is investment advice.</p>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-      <footer className="mt-10 pt-6 border-t border-line text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
-        <span>Roki trades paper money only. Nothing here is investment advice.</span>
-        <span>Every trade, right and wrong, stays on record.</span>
-      </footer>
-      </main>
+          {pageEl}
+          <footer className="mt-12 pt-6 border-t border-line flex flex-wrap gap-x-6 gap-y-1 text-[13px] text-ink-3">
+            <span>Roki trades paper money only. Nothing here is investment advice.</span>
+            <span className="sm:ml-auto">Every trade, right and wrong, stays on record.</span>
+          </footer>
+        </main>
+      </div>
     </div>
-  );
-}
-
-function TradeTable({ trades, open = false }: { trades: PaperTrade[]; open?: boolean }) {
-  const cols = open ? ["Day", "Market", "Rule", "Type", "Side", "Bought/sold at", "Safety exit", "Target", "Now %", "Broker"] : ["Day", "Market", "Rule", "Type", "Side", "Entry", "Exit", "Exit time", "Return %", "Profit on ₹1 lakh", "Broker"];
-  return (
-    <Table><TableHeader><TableRow>{cols.map((h) => <TableHead key={h} className="text-xs whitespace-nowrap">{h}</TableHead>)}</TableRow></TableHeader><TableBody>
-      {trades.map((t) => (
-        <TableRow key={t.id} title={t.reason}>
-          <TableCell className="font-mono text-xs whitespace-nowrap">{t.session}</TableCell>
-          <TableCell className="whitespace-nowrap">{t.instrument}</TableCell>
-          <TableCell className="text-[13px] whitespace-nowrap">{RULE_NAME[t.strategy] || t.strategy}</TableCell>
-          <TableCell><Pill tone={t.mode === "active" ? "green" : "muted"}>{t.mode === "active" ? "counted" : "learning"}</Pill></TableCell>
-          <TableCell><Pill tone={t.side === 1 ? "green" : "red"}>{t.side === 1 ? "BUY" : "SELL"}</Pill></TableCell>
-          <TableCell className="font-mono text-xs">{t.entry !== null ? num(t.entry) : t.status}</TableCell>
-          {open ? (<>
-            <TableCell className="font-mono text-xs">{num(t.stop)}</TableCell>
-            <TableCell className="font-mono text-xs">{num(t.target)}</TableCell>
-            <TableCell className="font-mono text-xs"><Signed v={t.mtmPct} /></TableCell>
-          </>) : (<>
-            <TableCell className="font-mono text-xs">{num(t.exit)}</TableCell>
-            <TableCell className="font-mono text-[13px] whitespace-nowrap">{time(t.exitTime)}</TableCell>
-            <TableCell className="font-mono text-xs"><Signed v={t.retPct} /></TableCell>
-            <TableCell className="font-mono text-xs whitespace-nowrap">{t.pnlInr !== null ? inr(t.pnlInr) : "—"}</TableCell>
-          </>)}
-          <TableCell className="text-[13px] max-w-[220px]">{t.brokerNote || "—"}</TableCell>
-        </TableRow>
-      ))}
-    </TableBody></Table>
   );
 }

@@ -16,6 +16,6 @@ export const RokiMark = ({ className = "w-8 h-8", title = "Roki" }: { className?
 export const RokiWordmark = ({ className = "" }: { className?: string }) => (
   <span className={`inline-flex items-center gap-2 ${className}`}>
     <RokiMark className="w-8 h-8" />
-    <span className="font-display text-[1.6rem] leading-none font-bold tracking-tight text-ink">roki</span>
+    <span className="text-[20px] leading-none font-semibold tracking-tight text-ink">roki</span>
   </span>
 );
