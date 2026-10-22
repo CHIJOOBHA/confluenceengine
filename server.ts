@@ -61,6 +61,7 @@ async function requireOwner(req: Request, res: Response, next: NextFunction) {
 function requireCron(req: Request, res: Response, next: NextFunction) {
   const secret = process.env.CRON_SECRET;
   if (secret && req.headers.authorization === `Bearer ${secret}`) return next();
+  console.warn("[CRON] rejected: wrong or missing CRON_SECRET");
   res.status(401).json({ error: "Unauthorized" });
 }
 
@@ -197,7 +198,12 @@ app.post("/api/live", requireOwner, async (req, res) => {
 });
 
 // Vercel Cron (or any scheduler) calls this with "Authorization: Bearer <CRON_SECRET>"
-app.get("/api/cron", requireCron, async (_req, res) => { await cycle(); res.json({ ok: !lastError, error: lastError }); });
+app.get("/api/cron", requireCron, async (_req, res) => {
+  const t0 = Date.now();
+  await cycle();
+  console.log(`[CRON] engine run ${lastError ? "FAILED: " + lastError : "ok"} in ${Date.now() - t0} ms`);
+  res.json({ ok: !lastError, error: lastError });
+});
 
 app.use("/api/*", (req, res) => res.status(404).json({ error: "API route not found", path: req.originalUrl }));
 
