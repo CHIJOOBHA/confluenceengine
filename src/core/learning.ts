@@ -14,13 +14,18 @@
 import type { Market, PaperTrade, StrategyId } from "./brain.js";
 import type { Prediction } from "./engineRunner.js";
 import type { Verdict } from "./review.js";
+import { ccyOf, money, totals, type Ccy } from "./markets.js";
+import { HOLIDAYS_KNOWN_TO } from "./instruments.js";
 
 /** Average result per trade after costs found in testing (percent of the trade). */
+// Re-based on 22 Oct 2026 to each market's real cost (markets.ts): India +0.04% and crypto
+// +0.10% a trade dearer than before, so those expectations drop by the same amount.
+// Gap fade on Indian indices no longer pays after real costs and is learning-only.
 export const EXPECTED: Partial<Record<StrategyId, Partial<Record<Market, number>>>> = {
-  GAPFADE: { "IN index": 0.05, "US stock": 0.13 },
-  XFADE: { "IN index": 0.08, "IN stock": 0.15, crypto: 0.15 },
+  GAPFADE: { "US stock": 0.13 },
+  XFADE: { "IN index": 0.04, "IN stock": 0.11, crypto: 0.05 },
   BIGGAP: { "US stock": 0.6 },
-  BREAKOUT: { crypto: 0.3 },
+  BREAKOUT: { crypto: 0.2 },
 };
 
 export const PRED_EXPECTED: Record<string, [number, number, string]> = {
@@ -37,7 +42,9 @@ export interface RuleScore {
   market: Market;
   n: number;
   wins: number;
-  totalInr: number;
+  /** Money result in the market's own currency (`ccy`). */
+  total: number;
+  ccy: Ccy;
   avgPct: number;
   expectedPct: number | null;
   /** How far live is from testing, in units of normal luck for this many trades. */
@@ -59,7 +66,9 @@ export interface JournalDay {
   date: string;
   trades: number;
   wins: number;
-  totalInr: number;
+  /** Per currency; rupees and dollars are never added. */
+  totals: Record<Ccy, number>;
+  xs: PaperTrade[];
   best: PaperTrade | null;
   worst: PaperTrade | null;
   mix: Partial<Record<Verdict, number>>;
@@ -112,12 +121,20 @@ export function buildLearning(trades: PaperTrade[], predictions: Prediction[]): 
       status = "propose";
       note = "Below zero after 40+ trades: Roki suggests moving it to learning-only. You decide.";
     }
-    return { strategy, market, n: xs.length, wins: xs.filter((t) => (t.pnlInr ?? 0) > 0).length, totalInr: xs.reduce((a, t) => a + (t.pnlInr ?? 0), 0), avgPct: avg, expectedPct: expected, z, status, note };
+    return { strategy, market, n: xs.length, wins: xs.filter((t) => (t.retPct ?? 0) > 0).length, total: xs.reduce((a, t) => a + money(t).amount, 0), ccy: ccyOf(market), avgPct: avg, expectedPct: expected, z, status, note };
   }).sort((a, b) => b.n - a.n);
 
   // 2. Checks: findings from testing, re-measured live
   const reviewed = counted.filter((t) => t.review);
   const checks: Check[] = [];
+  const soon = new Date(Date.now() + 45 * 86400000).toISOString().slice(0, 10);
+  const stale = (["IN", "US"] as const).filter((k) => soon > HOLIDAYS_KNOWN_TO[k]);
+  checks.push({
+    id: "calendars", title: "Market calendars are up to date",
+    fromTesting: "Each market keeps its own holidays and early closes (NSE, NYSE, CME). A missing holiday makes Roki wait for a session that never opens.",
+    live: stale.length ? `Holiday list ends soon for ${stale.map((k) => (k === "IN" ? "India (add NSE's next-year list)" : "the US")).join(" and ")}.` : `India listed to ${HOLIDAYS_KNOWN_TO.IN}, US to ${HOLIDAYS_KNOWN_TO.US}.`,
+    n: 0, status: stale.length ? "differs" : "agrees",
+  });
   const winners = reviewed.filter((t) => t.review!.won);
   checks.push({
     id: "against_first", title: "Winners often go against Roki first",
@@ -171,14 +188,14 @@ export function buildLearning(trades: PaperTrade[], predictions: Prediction[]): 
   const days = [...new Set(counted.map((t) => t.session))].sort().reverse();
   const journal: JournalDay[] = days.map((date) => {
     const xs = counted.filter((t) => t.session === date);
-    const sorted = [...xs].sort((a, b) => (b.pnlInr ?? 0) - (a.pnlInr ?? 0));
+    const sorted = [...xs].sort((a, b) => (b.retPct ?? 0) - (a.retPct ?? 0));
     const mix: Partial<Record<Verdict, number>> = {};
     for (const t of xs) if (t.review) mix[t.review.verdict] = (mix[t.review.verdict] || 0) + 1;
     const ps = predictions.filter((p) => p.session === date && (p.result === "hit" || p.result === "miss"));
     const lessons = [...new Set(xs.filter((t) => t.review && !t.review.won).map((t) => t.review!.lesson))];
     if (!lessons.length) lessons.push(...new Set(xs.filter((t) => t.review).map((t) => t.review!.lesson)));
     return {
-      date, trades: xs.length, wins: xs.filter((t) => (t.pnlInr ?? 0) > 0).length, totalInr: xs.reduce((a, t) => a + (t.pnlInr ?? 0), 0),
+      date, trades: xs.length, wins: xs.filter((t) => (t.retPct ?? 0) > 0).length, totals: totals(xs), xs,
       best: sorted[0] ?? null, worst: sorted.length > 1 ? sorted[sorted.length - 1] : null, mix,
       predRight: ps.filter((p) => p.result === "hit").length, predScored: ps.length, lessons: lessons.slice(0, 3),
     };
@@ -192,10 +209,10 @@ export function buildLearning(trades: PaperTrade[], predictions: Prediction[]): 
 /** All reviews as CSV, for keeping or sharing. */
 export function reviewsCsv(trades: PaperTrade[]): string {
   const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const head = ["day", "market", "instrument", "rule", "counted", "side", "entry", "exit", "result_inr", "result_pct", "outcome", "why_taken", "what_happened", "why_won_or_lost", "lesson"];
+  const head = ["day", "market", "instrument", "rule", "counted", "side", "entry", "exit", "result", "currency", "result_pct", "outcome", "why_taken", "what_happened", "why_won_or_lost", "lesson"];
   const rows = trades.filter((t) => t.status === "closed").sort((a, b) => a.session.localeCompare(b.session)).map((t) => [
     t.session, t.market, t.instrument, RULE[t.strategy] || t.strategy, t.mode === "active" ? "yes" : "learning only", t.side === 1 ? "buy" : "sell",
-    t.entry, t.exit, Math.round(t.pnlInr ?? 0), (t.retPct ?? 0).toFixed(3), t.review?.verdict ?? "", t.review?.why ?? "", t.review?.happened ?? "", t.review?.because ?? "", t.review?.lesson ?? "",
+    t.entry, t.exit, money(t).amount.toFixed(2), ccyOf(t.market), (t.retPct ?? 0).toFixed(3), t.review?.verdict ?? "", t.review?.why ?? "", t.review?.happened ?? "", t.review?.because ?? "", t.review?.lesson ?? "",
   ].map(esc).join(","));
   return [head.join(","), ...rows].join("\n");
 }

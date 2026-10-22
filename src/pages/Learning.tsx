@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import type { EngineView } from "../types";
 import { buildLearning, type Check, type RuleScore } from "../core/learning";
 import { buildResearch, type ResearchItem } from "../core/research";
-import { Badge, Empty, MARKET_NAME, PageHeader, Panel, RULE_NAME, TableWrap, VERDICT, dayLabel, inr, pctTxt, tone } from "../ui/kit";
+import { Badge, Empty, MARKET_NAME, PageHeader, Panel, RULE_NAME, TableWrap, VERDICT, dayLabel, fmtMoney, MoneySum, moneyTxt, pctTxt, tone } from "../ui/kit";
 import type { Verdict } from "../core/review";
 
 const STATUS: Record<RuleScore["status"], [string, "neutral" | "gain" | "warn" | "loss"]> = {
@@ -60,7 +60,7 @@ export function Learning({ view }: { view: EngineView }) {
                     <td className="whitespace-nowrap muted">{MARKET_NAME[s.market] || s.market}</td>
                     <td className="r">{s.n}<span className="text-ink-3">/20</span></td>
                     <td className="r">{s.wins}</td>
-                    <td className={`r font-medium ${tone(s.totalInr)}`}>{inr(s.totalInr)}</td>
+                    <td className={`r font-medium ${tone(s.total)}`}>{fmtMoney(s.total, s.ccy)}</td>
                     <td className={`r ${tone(s.avgPct)}`}>{pctTxt(s.avgPct)}</td>
                     <td className="r muted">{s.expectedPct !== null ? pctTxt(s.expectedPct) : "—"}</td>
                     <td><Badge kind={STATUS[s.status][1]} dot>{STATUS[s.status][0]}</Badge><div className="text-xs text-ink-3 mt-1 max-w-[34ch]">{s.note}</div></td>
@@ -94,7 +94,7 @@ export function Learning({ view }: { view: EngineView }) {
               <li key={j.date} className="p-4 md:p-5 grid md:grid-cols-[200px_1fr] gap-x-8 gap-y-3">
                 <div>
                   <div className="text-[14px] font-semibold">{dayLabel(j.date, true)}</div>
-                  <div className={`mt-1 text-[22px] font-semibold num ${tone(j.totalInr)}`}>{inr(j.totalInr)}</div>
+                  <div className="mt-1 text-[22px] font-semibold num"><MoneySum trades={j.xs} stack /></div>
                   <div className="text-[13px] text-ink-2">{j.wins} won, {j.trades - j.wins} lost</div>
                   {j.predScored > 0 && <div className="text-[13px] text-ink-2">Predictions {j.predRight} of {j.predScored} right</div>}
                 </div>
@@ -105,8 +105,8 @@ export function Learning({ view }: { view: EngineView }) {
                     ))}
                   </div>
                   <p className="mt-3 text-[14px]">
-                    {j.best && <>Best: <span className="font-medium">{j.best.instrument}</span> <span className={tone(j.best.pnlInr)}>{inr(j.best.pnlInr ?? 0)}</span>. </>}
-                    {j.worst && <>Worst: <span className="font-medium">{j.worst.instrument}</span> <span className={tone(j.worst.pnlInr)}>{inr(j.worst.pnlInr ?? 0)}</span>.</>}
+                    {j.best && <>Best: <span className="font-medium">{j.best.instrument}</span> <span className={tone(j.best.retPct)}>{moneyTxt(j.best)}</span>. </>}
+                    {j.worst && <>Worst: <span className="font-medium">{j.worst.instrument}</span> <span className={tone(j.worst.retPct)}>{moneyTxt(j.worst)}</span>.</>}
                   </p>
                   {studyOf(j.date) && <p className="mt-3 text-[14px]"><span className="text-[12px] text-ink-3 block">Today's small study</span>{studyOf(j.date)!.text}</p>}
                   {j.lessons.length > 0 && (

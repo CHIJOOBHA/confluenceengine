@@ -11,6 +11,10 @@ Grounded in:
   claims or hints at non-public information, never urges anyone to trade, never names small or
   illiquid stocks, and never promotes paid groups or tips.
 - Platform rules: no guaranteed returns, no get-rich claims; disclaimer always on screen.
+- Market facts (added 22 Oct 2026): each market is described in its own terms. India is booked in
+  rupees (₹1 lakh a trade), every Global market (US stocks, S&P 500, gold, silver, oil, crypto) in
+  US dollars ($1,000 a trade). Indian-only terms (lots, STT, expiry, SEBI) stay out of the Global
+  video, and clock times in the Global video always say whose time (IST or New York).
 """
 import datetime as dt
 import json
@@ -29,6 +33,13 @@ BANNED = [  # (pattern, why)
     (r"\b(telegram|whatsapp|paid group|join my|premium group|signal group)\b", "promotes a paid or private group"),
     (r"\bfinancial advice\b(?! not)", "advice framing"),
 ]
+RUPEE = re.compile(r"₹|\brs\.?\s?\d|\brupees?\b|\blakhs?\b|\bcrores?\b|\bpaise\b", re.I)
+DOLLAR = re.compile(r"\$|\bdollars?\b|\bcents?\b|\busd\b", re.I)
+FX_TALK = re.compile(r"dollar[- ]rupee|rupee[- ]dollar|usd ?/ ?inr|inr ?/ ?usd|exchange rate|\bthe rupee\b|\bthe dollar\b", re.I)  # the currency itself as a topic
+INDIA_ONLY = [(r"\blots?\b(?! of)", "Indian F&O lot sizes"), (r"\bstt\b", "India's securities transaction tax"),
+              (r"\bexpiry\b", "Indian weekly expiry"), (r"\bf&o\b", "Indian F&O")]
+CLOCK = re.compile(r"\b\d{1,2}(:\d{2})?\s*(am|pm)\b", re.I)
+ZONE = re.compile(r"\bIST\b|indian time|india time|new york|\bET\b|eastern|\bUTC\b", re.I)
 FUTURE_PRICE = re.compile(r"\b(will|going to|should|expect(ed)? to|likely to)\b[^.]{0,40}\b(rise|fall|go up|go down|break|hit|reach|touch|close (above|below)|rally|crash|bounce)", re.I)
 
 
@@ -48,6 +59,8 @@ def check(S: dict, D: dict, today: dt.date | None = None) -> list[str]:
             if re.search(pat, low):
                 problems.append(f"{why} ({where}): {t}")
 
+    problems += market_facts(S, D, texts)
+
     if D.get("group") == "india":
         age = (today - dt.date.fromisoformat(D["date"])).days
         if age < 30:
@@ -59,6 +72,32 @@ def check(S: dict, D: dict, today: dt.date | None = None) -> list[str]:
         if not D.get("replay") and age < 30:
             problems.append("India video must be a replay of a session 30+ days old.")
     return problems
+
+
+def market_facts(S: dict, D: dict, texts: list[tuple[str, str]]) -> list[str]:
+    """Each video talks about its markets in their own currency and terms."""
+    out: list[str] = []
+    group = D.get("group")
+    want = "INR" if group == "india" else "USD"
+    if D.get("currency") and D["currency"] != want:
+        out.append(f"data package is in {D['currency']}, but the {group} video must be in {want}.")
+    for where, t in texts:
+        if FX_TALK.search(t):
+            continue
+        if group == "global":
+            if RUPEE.search(t):
+                out.append(f"rupees in the Global video ({where}): {t}  -> Global markets trade in US dollars; use $ and 'dollars'.")
+            if any(re.search(r"\b" + re.escape(n) + r"\b", t.lower()) for n in INDIAN):
+                out.append(f"names an Indian security in the Global video ({where}): {t}  -> recent Indian data may not be discussed (SEBI 30-day rule).")
+            for pat, what in INDIA_ONLY:
+                if re.search(pat, t, re.I):
+                    out.append(f"{what} in the Global video ({where}): {t}  -> US stocks have no lots; gold/oil are futures contracts (100 oz, 1,000 barrels); crypto trades in any fraction.")
+            if CLOCK.search(t) and not ZONE.search(t):
+                out.append(f"clock time without a time zone in the Global video ({where}): {t}  -> say 'IST' / 'Indian time' or 'New York time'.")
+        elif group == "india":
+            if DOLLAR.search(t):
+                out.append(f"dollars in the India video ({where}): {t}  -> Indian markets trade in rupees; use ₹ and 'rupees'.")
+    return out
 
 
 def _is_past_call(t: str) -> bool:

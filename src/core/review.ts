@@ -8,7 +8,7 @@
  */
 
 import type { IntradayBar, PaperTrade, SessionContext } from "./brain.js";
-import { COST, NOTIONAL_INR } from "./brain.js";
+import { MARKETS, fmtMoney, type Ccy } from "./markets.js";
 
 export type Verdict =
   | "target" // reached yesterday's close as planned
@@ -19,14 +19,15 @@ export type Verdict =
   | "wrong_way"; // went against Roki and never paid
 
 export interface TradeReview {
-  v: 1;
+  v: 1 | 2; // 2: money in the trade's own currency (v1 wrote every market in rupees)
+  ccy?: Ccy;
   verdict: Verdict;
   won: boolean;
   why: string; // why the trade was taken
   happened: string; // what the price did
   because: string; // why it ended in profit or loss
   lesson: string; // what it teaches
-  best: { inr: number; adr: number; at: number }; // best moment after entry
+  best: { inr: number; adr: number; at: number }; // best moment after entry; `inr` is the amount in `ccy` (name kept from v1)
   worst: { inr: number; adr: number; at: number }; // worst moment after entry
   dayRangeAdr: number; // today's range in average days
   trendDay: boolean; // range > 1.5 average days, closing near one end
@@ -35,8 +36,7 @@ export interface TradeReview {
   wentAgainstFirst: boolean;
 }
 
-const f = (v: number) => v.toLocaleString("en-IN", { maximumFractionDigits: v < 10 ? 4 : 2 });
-const r = (v: number) => `₹${Math.abs(Math.round(v)).toLocaleString("en-IN")}`;
+const f = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: v < 10 ? 4 : 2 });
 const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" }) + " IST";
 const side = (t: PaperTrade) => (t.side === 1 ? "bought" : "sold");
 
@@ -70,7 +70,9 @@ export function reviewTrade(t: PaperTrade, bars: IntradayBar[], ctx: SessionCont
   const open = bars[0].open;
   const held = bars.filter((b) => b.t >= t.entryTime! && b.t <= t.exitTime!);
   if (!held.length) return null;
-  const pnlAt = (px: number) => ((t.side * (px - t.entry!)) / t.entry!) * NOTIONAL_INR;
+  const spec = MARKETS[t.market], size = spec.paperSize, ccy: Ccy = spec.ccy;
+  const r = (v: number) => fmtMoney(Math.abs(v), ccy, false); // money in the trade's own currency
+  const pnlAt = (px: number) => ((t.side * (px - t.entry!)) / t.entry!) * size;
   let best = { inr: -Infinity, adr: 0, at: held[0].t }, worst = { inr: Infinity, adr: 0, at: held[0].t };
   let firstMove: "for" | "against" | null = null;
   const step = 0.25 * ctx.adr;
@@ -91,15 +93,15 @@ export function reviewTrade(t: PaperTrade, bars: IntradayBar[], ctx: SessionCont
   const againstTrend = dayDir !== 0 && dayDir !== t.side;
   const trendDay = dayRangeAdr > 1.5 && (closePos > 0.75 || closePos < 0.25);
   const touchedPdc = lo <= ctx.pdc && hi >= ctx.pdc;
-  const pnl = t.pnlInr ?? 0, won = pnl > 0;
-  const costInr = COST[t.market] * NOTIONAL_INR;
+  const pnl = ((t.retPct ?? 0) / 100) * size, won = pnl > 0;
+  const costInr = spec.cost * size;
   const exitWhy = t.reason.split("; closed: ")[1] || "";
 
   let verdict: Verdict;
   if (won && exitWhy.startsWith("target")) verdict = "target";
   else if (won) verdict = "won_close";
   else if (exitWhy.startsWith("safety stop")) verdict = "stopped";
-  else if (best.inr >= Math.max(3 * costInr, 0.3 * ctx.adr / t.entry * NOTIONAL_INR)) verdict = "gave_back";
+  else if (best.inr >= Math.max(3 * costInr, 0.3 * ctx.adr / t.entry * size)) verdict = "gave_back";
   else if (Math.abs(pnl) <= 2 * costInr) verdict = "costs";
   else verdict = "wrong_way";
 
@@ -137,13 +139,13 @@ export function reviewTrade(t: PaperTrade, bars: IntradayBar[], ctx: SessionCont
   };
 
   return {
-    v: 1, verdict, won,
+    v: 2, ccy, verdict, won,
     why: whyTaken(t, ctx, open),
     happened,
     because: because[verdict],
     lesson: lessonFor(),
-    best: { inr: Math.round(best.inr), adr: +best.adr.toFixed(2), at: best.at },
-    worst: { inr: Math.round(worst.inr), adr: +worst.adr.toFixed(2), at: worst.at },
+    best: { inr: Math.round(best.inr * 100) / 100, adr: +best.adr.toFixed(2), at: best.at },
+    worst: { inr: Math.round(worst.inr * 100) / 100, adr: +worst.adr.toFixed(2), at: worst.at },
     dayRangeAdr: +dayRangeAdr.toFixed(2), trendDay, againstTrend, touchedPdc, wentAgainstFirst: firstMove === "against",
   };
 }

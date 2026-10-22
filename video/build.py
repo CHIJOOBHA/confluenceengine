@@ -46,7 +46,7 @@ def screen_texts(o):
     if isinstance(o, str): yield o
     elif isinstance(o, dict):
         for k2, v2 in o.items():
-            if k2 not in ("kind", "tone", "instrument", "at", "done", "need", "value", "of", "inr"): yield from screen_texts(v2)
+            if k2 not in ("kind", "tone", "instrument", "at", "done", "need", "value", "of", "inr", "money"): yield from screen_texts(v2)
     elif isinstance(o, list):
         for v2 in o: yield from screen_texts(v2)
 for seg in S["segments"]:
@@ -68,10 +68,10 @@ if bad:
 for seg in S["segments"]:  # numbers placed directly in scene fields must also be facts
     sc = seg["scene"]
     nums = []
-    for c in sc.get("cards", []): nums.append(c["inr"])
+    for c in sc.get("cards", []): nums.append(c.get("money", c.get("inr")))
     for t in sc.get("tiles", []): nums += [t["value"]] + ([t["of"]] if "of" in t else [])
     for r in sc.get("rows", []): nums += [r[k] for k in ("done", "need") if k in r]
-    if "total" in sc: nums.append(sc["total"]["inr"])
+    if "total" in sc: nums.append(sc["total"].get("money", sc["total"].get("inr")))
     for v in nums:
         if round(float(v)) not in facts and round(float(v), 2) not in facts: bad.append((f"scene {sc['kind']}", str(v)))
 if bad:
@@ -111,6 +111,6 @@ for s in scenes:
         s["entry"] = {"t": tr["entryTime"], "price": tr["entry"], "side": tr["side"]}
         if tr.get("exitTime"): s["exit"] = {"t": tr["exitTime"], "price": tr["exit"]}
 
-props = {"label": S["label"], "audio": f"{vid}/voice.wav", "duration": round(total, 3), "lines": lines, "scenes": scenes}
+props = {"label": S["label"], "ccy": D.get("currency", "INR" if D.get("group") == "india" else "USD"), "audio": f"{vid}/voice.wav", "duration": round(total, 3), "lines": lines, "scenes": scenes}
 os.makedirs("props", exist_ok=True); json.dump(props, open(f"props/{vid}.json", "w"))
 print(f"voice {voice} · {round(total,1)} s · {len(lines)} lines · {len(scenes)} scenes -> props/{vid}.json")

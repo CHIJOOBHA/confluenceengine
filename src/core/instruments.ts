@@ -46,9 +46,22 @@ export const INSTRUMENTS: Instrument[] = [
 export const START_DATE = "2026-10-22";
 
 // Weekday market holidays (from the NSE / NYSE calendars). Update every year.
+// India: NSE 2026 list (Dussehra 20 Oct, Diwali Balipratipada 10 Nov, Guru Nanak Jayanti 24 Nov, Christmas);
+// Muhurat trading on Sun 8 Nov 2026 is a one-hour special session and is not traded by Roki.
+// The NSE 2027 list comes out in December: add it then (HOLIDAYS_KNOWN_TO says how far the lists go).
+// US: NYSE 2026 and 2027 lists. CME gold and oil follow the US list.
 export const HOLIDAYS: Record<"IN" | "US", Set<string>> = {
-  IN: new Set(["2026-10-20", "2026-11-10", "2026-11-24", "2026-12-25"]), // 2026-10-20: no NSE session in the data; that week's Nifty expiry moved to Mon 19 Oct
-  US: new Set(["2026-11-26", "2026-12-25"]),
+  IN: new Set(["2026-10-20", "2026-11-10", "2026-11-24", "2026-12-25"]), // 2026-10-20: that week's Nifty expiry moved to Mon 19 Oct
+  US: new Set(["2026-11-26", "2026-12-25",
+    "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24"]),
+};
+export const HOLIDAYS_KNOWN_TO: Record<"IN" | "US", string> = { IN: "2026-12-31", US: "2027-12-31" };
+
+/** Early closes, New York time: US stocks at 1:00 pm; CME gold and oil stop at 1:45 pm (check CME's holiday notice each year). */
+export const EARLY_CLOSE: Record<string, { US: string; FUT: string }> = {
+  "2026-11-27": { US: "13:00", FUT: "13:45" },
+  "2026-12-24": { US: "13:00", FUT: "13:45" },
+  "2027-11-26": { US: "13:00", FUT: "13:45" },
 };
 
 const SESSION_DEF = {
@@ -96,10 +109,12 @@ export function sessionBounds(inst: Instrument, date: string): { start: number; 
     const start = Date.parse(`${date}T00:00:00Z`);
     return { start, end: start + 86400000 };
   }
+  const early = EARLY_CLOSE[date];
   if (inst.session === "FUT") {
-    return { start: wallTime(def.tz, addDays(date, -1), def.open), end: wallTime(def.tz, date, def.close) };
+    return { start: wallTime(def.tz, addDays(date, -1), def.open), end: wallTime(def.tz, date, early?.FUT ?? def.close) };
   }
-  return { start: wallTime(def.tz, date, def.open), end: wallTime(def.tz, date, def.close) };
+  const close = inst.session === "US" && early ? early.US : def.close;
+  return { start: wallTime(def.tz, date, def.open), end: wallTime(def.tz, date, close) };
 }
 
 /** The next session date after `date` (skips weekends and holidays). */

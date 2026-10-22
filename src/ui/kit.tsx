@@ -1,17 +1,19 @@
 /**
  * ROKI UI KIT - the few building blocks every page uses, and the formatting rules.
- * Numbers: rupees as ₹1,23,456 with a real minus sign; prices to 2 decimals
- * (4 below 10); percentages to 2 decimals; times in IST.
+ * Money: each trade in its own market's currency (₹ for India, $ for US, gold, oil,
+ * crypto; see core/markets.ts) with a real minus sign; rupees and dollars are never
+ * added together. Prices to 2 decimals (4 below 10); percentages to 2 decimals; times in IST.
  */
 import type { ReactNode } from "react";
 import type { PaperTrade } from "../types";
 import type { Verdict } from "../core/review";
+import { money, totals, fmtMoney, type Ccy } from "../core/markets";
 
 // ---------------------------------------------------------------- formatting
 export const inr = (v: number, signed = true) =>
   `${signed ? (v > 0 ? "+" : v < 0 ? "−" : "") : v < 0 ? "−" : ""}₹${Math.abs(Math.round(v)).toLocaleString("en-IN")}`;
 export const price = (v: number | null | undefined) =>
-  v === null || v === undefined || Number.isNaN(v) ? "—" : v.toLocaleString("en-IN", { minimumFractionDigits: v < 10 ? 4 : 2, maximumFractionDigits: v < 10 ? 4 : 2 });
+  v === null || v === undefined || Number.isNaN(v) ? "—" : v.toLocaleString("en-US", { minimumFractionDigits: v < 10 ? 4 : 2, maximumFractionDigits: v < 10 ? 4 : 2 });
 export const pctTxt = (v: number | null | undefined, signed = true) =>
   v === null || v === undefined ? "—" : `${signed && v > 0 ? "+" : v < 0 ? "−" : ""}${Math.abs(v).toFixed(2)}%`;
 export const share = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "—");
@@ -39,7 +41,22 @@ export const VERDICT: Record<Verdict, { label: string; won: boolean; plural: str
   costs: { label: "Too small to beat charges", won: false, plural: "moved too little to beat charges" },
   wrong_way: { label: "Went the wrong way", won: false, plural: "went the wrong way" },
 };
-export const rupeesOf = (t: PaperTrade) => (t.status === "closed" ? t.pnlInr ?? 0 : t.status === "open" && t.mtmPct !== null ? t.mtmPct * 1000 : 0);
+/** A trade's money result in its own currency. */
+export const moneyOf = (t: PaperTrade) => money(t);
+export const moneyTxt = (t: PaperTrade, signed = true) => { const m = money(t); return fmtMoney(m.amount, m.ccy, signed); };
+export const won = (t: PaperTrade) => (t.retPct ?? 0) > 0;
+export { totals, fmtMoney };
+export type { Ccy };
+
+/** "+₹2,709 · −$122": one part per currency that has trades; zero shows as ₹0. */
+export function MoneySum({ trades, signed = true, abs = false, stack = false }: { trades: PaperTrade[]; signed?: boolean; abs?: boolean; stack?: boolean }) {
+  const t = totals(trades);
+  const has = { INR: trades.some((x) => money(x).ccy === "INR"), USD: trades.some((x) => money(x).ccy === "USD") };
+  const parts = (["INR", "USD"] as Ccy[]).filter((c) => has[c]);
+  if (!parts.length) return <span className="text-ink-2">₹0</span>;
+  if (stack) return <>{parts.map((c) => <div key={c} className={tone(t[c])}>{fmtMoney(t[c], c, signed)}</div>)}</>;
+  return <>{parts.map((c, i) => <span key={c}>{i > 0 && <span className="text-ink-3"> · </span>}<span className={tone(t[c])}>{fmtMoney(abs ? Math.abs(t[c]) : t[c], c, signed && !abs)}</span></span>)}</>;
+}
 
 // ---------------------------------------------------------------- blocks
 export function PageHeader({ title, sub, actions }: { title: string; sub?: ReactNode; actions?: ReactNode }) {

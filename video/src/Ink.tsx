@@ -9,6 +9,7 @@ import React from "react";
 import { AbsoluteFill, Audio, Easing, Sequence, interpolate, random, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import { loadFont } from "@remotion/fonts";
 import type { Props, Scene, Line } from "./Video";
+import { money, amountOf, setCcy } from "./money";
 
 loadFont({ family: "Marker", url: staticFile("fonts/marker.woff2"), weight: "400" });
 loadFont({ family: "Brush", url: staticFile("fonts/brush.woff2"), weight: "400" });
@@ -23,7 +24,7 @@ const BRUSH = "Brush, 'Caveat Brush', cursive";
 const SANS = "Geist, system-ui, sans-serif";
 type Tone = "gain" | "loss" | "brand" | "neutral";
 const toneC = (t?: Tone) => (t === "gain" ? K.gain : t === "loss" ? K.loss : t === "brand" ? K.violet : K.ink);
-const inr = (v: number, signed = true) => `${signed ? (v > 0 ? "+" : v < 0 ? "−" : "") : ""}₹${Math.abs(Math.round(v)).toLocaleString("en-IN")}`;
+const inr = (v: number, signed = true) => money(v, signed); // name kept: formats in the video's currency
 
 function useSpring(delay = 0, damping = 14, stiffness = 140) {
   const f = useCurrentFrame(); const { fps } = useVideoConfig();
@@ -325,9 +326,9 @@ const Trades: React.FC<{ s: Extract<Scene, { kind: "trades" }> }> = ({ s }) => {
               <Sfx at={at} name="pop" volume={0.4} />
               <div style={{ display: "flex", alignItems: "baseline", gap: 18 }}>
                 <span style={{ fontFamily: MARK, fontSize: 56, color: K.ink }}>{c.name}</span>
-                <span style={{ marginLeft: "auto", fontFamily: MARK, fontSize: 64, color: c.inr >= 0 ? K.gain : K.loss }}><Count to={c.inr} delay={at + 4} /></span>
+                <span style={{ marginLeft: "auto", fontFamily: MARK, fontSize: 64, color: amountOf(c) >= 0 ? K.gain : K.loss }}><Count to={amountOf(c)} delay={at + 4} /></span>
               </div>
-              <div style={{ fontFamily: BRUSH, fontSize: 44, color: c.inr >= 0 ? K.gain : K.loss, marginTop: 2 }}>{c.badge.toLowerCase()}</div>
+              <div style={{ fontFamily: BRUSH, fontSize: 44, color: amountOf(c) >= 0 ? K.gain : K.loss, marginTop: 2 }}>{c.badge.toLowerCase()}</div>
               <div style={{ fontFamily: SANS, fontSize: 32, color: K.ink2, marginTop: 6, fontWeight: 500 }}>{c.note}</div>
             </div>
           );
@@ -337,7 +338,7 @@ const Trades: React.FC<{ s: Extract<Scene, { kind: "trades" }> }> = ({ s }) => {
           return f >= at ? (
             <div style={{ display: "flex", alignItems: "center", gap: 24, marginTop: 6, transform: `scale(${p}) rotate(-2deg)`, transformOrigin: "left" }}>
               <span style={{ fontFamily: BRUSH, fontSize: 60, color: K.ink }}>{s.total.label}:</span>
-              <span style={{ fontFamily: MARK, fontSize: 96, color: s.total.inr >= 0 ? K.gain : K.loss }}><Count to={s.total.inr} delay={at} /></span>
+              <span style={{ fontFamily: MARK, fontSize: 96, color: amountOf(s.total) >= 0 ? K.gain : K.loss }}><Count to={amountOf(s.total)} delay={at} /></span>
             </div>
           ) : null;
         })()}
@@ -467,6 +468,7 @@ const SceneWrap: React.FC<{ dur: number; first: boolean; children: React.ReactNo
 };
 
 export const RokiInk: React.FC<Props> = (props) => {
+  setCcy(props.ccy);
   const { fps } = useVideoConfig(); const f = useCurrentFrame();
   return (
     <AbsoluteFill style={{ background: K.paper }}>

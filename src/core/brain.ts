@@ -11,6 +11,8 @@
  * weekly Fibonacci grid, following the predicted close side) are not here.
  */
 
+import { MARKETS } from "./markets.js";
+
 export type Market = "IN index" | "IN stock" | "US index" | "US stock" | "commodity" | "crypto";
 
 export interface DailyBar {
@@ -39,7 +41,9 @@ export interface StrategyInfo {
 export const STRATEGIES: Record<StrategyId, StrategyInfo> = {
   GAPFADE: {
     description: "Open more than 0.5 ADR away from yesterday's close: trade back toward yesterday's close. Target = yesterday's close; exit at session close; 1 ADR safety stop.",
-    activeMarkets: ["IN index", "US stock"],
+    // Indian indices moved to learning-only on 22 Oct 2026: after the April 2026 STT rise the
+    // real cost (0.07% a trade) is more than the rule's 5-year gross edge (+0.05%).
+    activeMarkets: ["US stock"],
   },
   GAPFADE30: {
     description: "Same as GAPFADE but enter 30 minutes after the open (entry-timing test).",
@@ -292,7 +296,8 @@ export interface PaperTrade {
   exit: number | null;
   reason: string;
   retPct: number | null; // after costs
-  pnlInr: number | null; // on NOTIONAL_INR
+  pnl?: number | null; // money result in the market's own currency (markets.ts paperSize)
+  pnlInr: number | null; // legacy: rupees, Indian trades only (before 22 Oct 2026 every market was booked as ₹1 lakh)
   mtmPct: number | null;
   entryDelayBars: number;
   stopDistance: number;
@@ -311,9 +316,8 @@ export interface PaperTrade {
   brokerExitPrice?: number; // premium received per unit
 }
 
-export const COST: Record<Market, number> = {
-  "IN index": 0.0003, "IN stock": 0.0006, "US index": 0.0002, "US stock": 0.0002, commodity: 0.0003, crypto: 0.001,
-};
+/** Round-trip cost per market (see markets.ts for what each one is made of). */
+export const COST: Record<Market, number> = Object.fromEntries(Object.entries(MARKETS).map(([m, s]) => [m, s.cost])) as Record<Market, number>;
 export const NOTIONAL_INR = 100000;
 
 export function newTrade(instrument: string, market: Market, session: string, s: Signal): PaperTrade {
@@ -358,7 +362,7 @@ export function advanceTrade(t: PaperTrade, bars: IntradayBar[], sessionOver: bo
   const cost = COST[tr.market];
   const fin = (px: number, at: number, why: string) => {
     const r = (tr.side * (px - tr.entry!)) / tr.entry! - cost;
-    return { ...tr, status: "closed" as const, exit: px, exitTime: at, reason: `${tr.reason}; closed: ${why}`, retPct: r * 100, pnlInr: r * NOTIONAL_INR, mtmPct: null };
+    return { ...tr, status: "closed" as const, exit: px, exitTime: at, reason: `${tr.reason}; closed: ${why}`, retPct: r * 100, pnl: r * MARKETS[tr.market].paperSize, pnlInr: MARKETS[tr.market].ccy === "INR" ? r * NOTIONAL_INR : null, mtmPct: null };
   };
   const from = bars.findIndex((b) => b.t >= tr.entryTime!);
   for (let i = Math.max(0, from); i < bars.length; i++) {

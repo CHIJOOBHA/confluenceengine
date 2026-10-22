@@ -6,7 +6,8 @@
 import { useMemo } from "react";
 import { Bar, CartesianGrid, Cell, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { EngineView, PaperTrade, Prediction } from "../types";
-import { Badge, Empty, PageHeader, Panel, Stat, TableWrap, VERDICT, dayLabel, inr, pctTxt, price, rupeesOf, share, timeIST, todayIST, tone, RULE_NAME } from "../ui/kit";
+import { Badge, Empty, MoneySum, PageHeader, Panel, Stat, TableWrap, VERDICT, dayLabel, fmtMoney, moneyOf, moneyTxt, pctTxt, price, share, timeIST, todayIST, tone, won, RULE_NAME, type Ccy } from "../ui/kit";
+import { ccyOf } from "../core/markets";
 
 const dayOf = (t: PaperTrade) => (t.exitTime ? new Date(t.exitTime + 5.5 * 3600000).toISOString().slice(0, 10) : t.session);
 
@@ -26,13 +27,14 @@ const waitingText = (t: PaperTrade) =>
   t.trigger != null ? `${t.side === 1 ? "Buy" : "Sell"} if price ${t.side === 1 ? "rises above" : "falls below"} ${price(t.trigger)}, yesterday's ${t.side === 1 ? "high" : "low"}`
   : t.entryDelayBars ? `${t.side === 1 ? "Buy" : "Sell"} ${t.entryDelayBars * 5} minutes after the open` : `${t.side === 1 ? "Buy" : "Sell"} at the open`;
 
-function PnlChart({ counted }: { counted: PaperTrade[] }) {
+function PnlChart({ counted, ccy }: { counted: PaperTrade[]; ccy: Ccy }) {
+  const m = (v: number) => fmtMoney(v, ccy);
   const data = useMemo(() => {
     const by: Record<string, number> = {};
-    for (const t of counted.filter((t) => t.status === "closed")) by[dayOf(t)] = (by[dayOf(t)] || 0) + (t.pnlInr ?? 0);
+    for (const t of counted.filter((t) => t.status === "closed" && ccyOf(t.market) === ccy)) by[dayOf(t)] = (by[dayOf(t)] || 0) + moneyOf(t).amount;
     let run = 0;
     return Object.keys(by).sort().map((d) => ({ d: dayLabel(d), day: Math.round(by[d]), total: Math.round((run += by[d])) }));
-  }, [counted]);
+  }, [counted, ccy]);
   if (data.length < 2) return <Empty title="The chart starts after two trading days">Each day's result and the running total appear here.</Empty>;
   return (
     <div className="h-64 -ml-2">
@@ -40,10 +42,10 @@ function PnlChart({ counted }: { counted: PaperTrade[] }) {
         <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--line)" />
           <XAxis dataKey="d" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "var(--ink-3)" }} />
-          <YAxis tickLine={false} axisLine={false} width={64} tick={{ fontSize: 12, fill: "var(--ink-3)" }} tickFormatter={(v) => inr(v)} />
+          <YAxis tickLine={false} axisLine={false} width={64} tick={{ fontSize: 12, fill: "var(--ink-3)" }} tickFormatter={(v) => m(v)} />
           <ReferenceLine y={0} stroke="var(--line-strong)" />
           <Tooltip cursor={{ fill: "var(--sunken)" }} contentStyle={{ background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 8, fontSize: 13 }}
-            formatter={(v: number, k: string) => [inr(v), k === "day" ? "That day" : "Running total"]} />
+            formatter={(v: number, k: string) => [m(v), k === "day" ? "That day" : "Running total"]} />
           <Bar dataKey="day" radius={[3, 3, 3, 3]} maxBarSize={28}>
             {data.map((x) => <Cell key={x.d} fill={x.day >= 0 ? "color-mix(in srgb, var(--gain) 45%, transparent)" : "color-mix(in srgb, var(--loss) 40%, transparent)"} />)}
           </Bar>
@@ -61,7 +63,7 @@ function TradeRows({ trades, closed }: { trades: PaperTrade[]; closed: boolean }
         <thead><tr><th>Market</th><th>Trade</th><th className="r hidden sm:table-cell">{closed ? "Exit" : "Entry"}</th><th className="r">Result</th></tr></thead>
         <tbody>
           {trades.map((t) => {
-            const v = rupeesOf(t);
+            const v = moneyOf(t).amount;
             return (
               <tr key={t.id}>
                 <td><div className="font-medium">{t.instrument}</div><div className="text-xs text-ink-3">{RULE_NAME[t.strategy] || t.strategy}</div></td>
@@ -71,7 +73,7 @@ function TradeRows({ trades, closed }: { trades: PaperTrade[]; closed: boolean }
                   <div className="text-xs text-ink-3 sm:hidden">{closed ? `Closed at ${price(t.exit)}, ${timeIST(t.exitTime)} IST` : `Since ${timeIST(t.entryTime)} IST`}</div>
                 </td>
                 <td className="r hidden sm:table-cell whitespace-nowrap">{closed ? <><div>{price(t.exit)}</div><div className="text-xs text-ink-3">{timeIST(t.exitTime)} IST</div></> : <><div>{timeIST(t.entryTime)}</div><div className="text-xs text-ink-3">IST</div></>}</td>
-                <td className={`r font-medium whitespace-nowrap ${tone(v)}`}>{inr(v)}<div className="text-xs font-normal">{closed ? pctTxt(t.retPct) : t.mtmPct !== null ? `${pctTxt(t.mtmPct)} now` : ""}</div></td>
+                <td className={`r font-medium whitespace-nowrap ${tone(v)}`}>{moneyTxt(t)}<div className="text-xs font-normal">{closed ? pctTxt(t.retPct) : t.mtmPct !== null ? `${pctTxt(t.mtmPct)} now` : ""}</div></td>
               </tr>
             );
           })}
@@ -85,9 +87,8 @@ export function Overview({ view }: { view: EngineView }) {
   const d = useMemo(() => {
     const now = todayIST();
     const counted = view.trades.filter((t) => t.mode === "active"), learning = view.trades.filter((t) => t.mode === "shadow");
-    const sum = (xs: PaperTrade[]) => xs.reduce((s, t) => s + rupeesOf(t), 0);
     const closed = counted.filter((t) => t.status === "closed");
-    const open = counted.filter((t) => t.status === "open").sort((a, b) => rupeesOf(b) - rupeesOf(a));
+    const open = counted.filter((t) => t.status === "open").sort((a, b) => (b.mtmPct ?? 0) - (a.mtmPct ?? 0));
     const closedToday = closed.filter((t) => dayOf(t) === now).sort((a, b) => (b.exitTime || 0) - (a.exitTime || 0));
     const latest: Record<string, string> = {};
     for (const p of view.predictions) if (!latest[p.instrument] || p.session > latest[p.instrument]) latest[p.instrument] = p.session;
@@ -96,11 +97,11 @@ export function Overview({ view }: { view: EngineView }) {
       .sort((a, b) => a.instrument.localeCompare(b.instrument) || order[a.question] - order[b.question]);
     const scored = view.predictions.filter((p) => p.result === "hit" || p.result === "miss");
     return {
-      counted, open, closedToday, today: sum(open) + sum(closedToday), all: sum(closed) + sum(open),
-      won: closed.filter((t) => (t.pnlInr ?? 0) > 0).length, lost: closed.filter((t) => (t.pnlInr ?? 0) <= 0).length,
+      counted, open, closedToday, today: [...open, ...closedToday], all: [...closed, ...open],
+      won: closed.filter(won).length, lost: closed.filter((t) => !won(t)).length,
       waiting: counted.filter((t) => t.status === "pending"), calls,
       right: scored.filter((p) => p.result === "hit").length, scored: scored.length,
-      learnAll: sum(learning.filter((t) => t.status !== "pending")), learnN: learning.filter((t) => t.status === "closed").length,
+      learnAll: learning.filter((t) => t.status !== "pending"), learnN: learning.filter((t) => t.status === "closed").length,
     };
   }, [view]);
   const lv = (i: string, s: string) => view.levels.find((l) => l.instrument === i && l.session === s);
@@ -108,27 +109,32 @@ export function Overview({ view }: { view: EngineView }) {
 
   return (
     <>
-      <PageHeader title="Overview" sub={`${dayLabel(todayIST(), true)}. Every trade is ₹1 lakh of paper money with costs included. Only rules that passed testing are counted.`} />
+      <PageHeader title="Overview" sub={`${dayLabel(todayIST(), true)}. Every Indian trade is ₹1 lakh of paper money; every US, gold, oil and crypto trade is $1,000. Real costs included. Only rules that passed testing are counted.`} />
 
       <section className="panel p-6 md:p-7 mb-4 relative overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-[3px] bg-[linear-gradient(90deg,var(--roki),var(--sun))]" />
         <p className="text-[13px] text-ink-2">Today</p>
         <p className="mt-1 font-display text-[30px] md:text-[38px] leading-[1.15]">
-          {nothingToday ? "Roki hasn't traded today yet." : <>Roki is <span className={tone(d.today)}>{d.today > 0 ? "up" : d.today < 0 ? "down" : "flat at"} {inr(Math.abs(d.today), false)}</span> on paper.</>}
+          {nothingToday ? "Roki hasn't traded today yet." : <>Today on paper: <MoneySum trades={d.today} /></>}
         </p>
         <p className="mt-1 text-[13px] text-ink-2">{d.open.length} open, {d.closedToday.length} closed today{d.waiting.length ? `, ${d.waiting.length} waiting for their price` : ""}.</p>
       </section>
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-4">
-        <Stat label="Since the start" value={inr(d.all)} valueClass={tone(d.all)} foot="Closed trades plus open ones at today's price" />
+        <Stat label="Since the start" value={<MoneySum trades={d.all} stack />} foot="India in rupees, global markets in dollars; closed plus open at today's price" />
         <Stat label="Trades won" value={share(d.won, d.won + d.lost)} foot={`${d.won} won, ${d.lost} lost`} />
         <Stat label="Predictions right" value={share(d.right, d.scored)} foot={`${d.right} of ${d.scored} checked against the market`} />
-        <Stat label="Open now" value={d.open.length} foot={d.open.length ? `${inr(d.open.reduce((s, t) => s + rupeesOf(t), 0))} at today's price` : "Most days the rules don't trade"} />
+        <Stat label="Open now" value={d.open.length} foot={d.open.length ? <><MoneySum trades={d.open} /> at today's price</> : "Most days the rules don't trade"} />
       </div>
 
-      <Panel title="Paper result by day" sub="Bars: each day's result. Line: running total. Counted trades only." className="mb-4">
-        <PnlChart counted={d.counted} />
-      </Panel>
+      <div className="grid gap-4 lg:grid-cols-2 mb-4">
+        <Panel title="India, by day" sub="In rupees. Bars: each day. Line: running total.">
+          <PnlChart counted={d.counted} ccy="INR" />
+        </Panel>
+        <Panel title="Global markets, by day" sub="US stocks, S&P 500, gold, silver, oil, crypto. In dollars.">
+          <PnlChart counted={d.counted} ccy="USD" />
+        </Panel>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2 mb-4">
         <Panel title="Open now" flush>{d.open.length ? <TradeRows trades={d.open} closed={false} /> : <Empty title="Nothing open">Roki only trades when a tested rule's conditions are met.</Empty>}</Panel>
@@ -164,7 +170,7 @@ export function Overview({ view }: { view: EngineView }) {
       </div>
 
       <p className="mt-4 text-[13px] text-ink-2">
-        Learning-only trades (rules not yet proven in that market, and tests of new ideas): {d.learnN} closed, <span className={tone(d.learnAll)}>{inr(d.learnAll)}</span>. They are kept apart and never counted above.
+        Learning-only trades (rules not yet proven in that market, and tests of new ideas): {d.learnN} closed, <MoneySum trades={d.learnAll} />. They are kept apart and never counted above.
       </p>
     </>
   );

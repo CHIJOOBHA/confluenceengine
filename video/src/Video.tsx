@@ -4,6 +4,7 @@
  */
 import React from "react";
 import { AbsoluteFill, Audio, Easing, Sequence, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
+import { money, amountOf, setCcy } from "./money";
 import { loadFont } from "@remotion/fonts";
 import { WORD_D, WORD_VB } from "./wordmark";
 
@@ -27,19 +28,19 @@ export type Scene =
   | { kind: "chart"; from: number; to: number; title: string; sub: string; bars: { t: number; open: number; high: number; low: number; close: number }[]; pdh: number; pdc: number; pdl: number;
       entry?: { t: number; price: number; side: 1 | -1 }; exit?: { t: number; price: number }; target?: number; notes: { at: number; text: string; tone: Tone }[] }
   | { kind: "predictions"; from: number; to: number; title: string; sub: string; rows: { name: string; text: string; ok: boolean }[] }
-  | { kind: "trades"; from: number; to: number; title: string; cards: { name: string; sub: string; inr: number; badge: string; note: string }[]; total?: { label: string; inr: number } }
+  | { kind: "trades"; from: number; to: number; title: string; cards: { name: string; sub: string; money?: number; inr?: number; badge: string; note: string }[]; total?: { label: string; money?: number; inr?: number } }
   | { kind: "testing"; from: number; to: number; title: string; rows: { q: string; done: number; need: number; finding: string }[] }
   | { kind: "next"; from: number; to: number; title: string; text: string; sub: string }
   | { kind: "lesson"; from: number; to: number; text: string; sub: string }
-  | { kind: "scoreboard"; from: number; to: number; title: string; tiles: { label: string; value: number; kind: "inr" | "ratio"; of?: number; foot: string }[] }
+  | { kind: "scoreboard"; from: number; to: number; title: string; tiles: { label: string; value: number; kind: "money" | "inr" | "ratio"; of?: number; foot: string }[] }
   | { kind: "close"; from: number; to: number; text: string; sub: string };
-export type Props = { label: string; audio: string; duration: number; lines: Line[]; scenes: Scene[]; day?: number };
+export type Props = { label: string; audio: string; duration: number; lines: Line[]; scenes: Scene[]; day?: number; ccy?: "INR" | "USD" };
 
 // ------------------------------------------------------------------ helpers
 const Sfx: React.FC<{ at: number; name: "chime" | "thud" | "whoosh" | "pop"; volume?: number }> = ({ at, name, volume = 0.5 }) => (
   <Sequence from={Math.max(0, Math.round(at))} durationInFrames={30} layout="none"><Audio src={staticFile(`sfx/${name}.wav`)} volume={volume} /></Sequence>
 );
-const inrTxt = (v: number, signed = true) => `${signed ? (v > 0 ? "+" : v < 0 ? "−" : "") : ""}₹${Math.abs(Math.round(v)).toLocaleString("en-IN")}`;
+const inrTxt = (v: number, signed = true) => money(v, signed);
 const toneColor = (t: Tone) => ({ gain: C.gain, loss: C.loss, brand: C.roki, neutral: C.ink })[t];
 function useIn(delay = 0, damping = 18) {
   const f = useCurrentFrame(); const { fps } = useVideoConfig();
@@ -213,12 +214,12 @@ const Trades: React.FC<{ s: Extract<Scene, { kind: "trades" }> }> = ({ s }) => {
               <Sfx at={at} name="pop" volume={0.4} />
               <div style={{ display: "flex", alignItems: "baseline", gap: 20 }}>
                 <span style={{ fontFamily: SANS, fontSize: 46, fontWeight: 650, color: C.ink, whiteSpace: "nowrap" }}>{c.name}</span>
-                <span style={{ marginLeft: "auto", whiteSpace: "nowrap", fontFamily: SANS, fontSize: 56, fontWeight: 650, letterSpacing: "-0.02em", color: c.inr >= 0 ? C.gain : C.loss, fontVariantNumeric: "tabular-nums" }}>
-                  <Count to={c.inr} delay={at + 6} /></span>
+                <span style={{ marginLeft: "auto", whiteSpace: "nowrap", fontFamily: SANS, fontSize: 56, fontWeight: 650, letterSpacing: "-0.02em", color: amountOf(c) >= 0 ? C.gain : C.loss, fontVariantNumeric: "tabular-nums" }}>
+                  <Count to={amountOf(c)} delay={at + 6} /></span>
               </div>
               <div style={{ marginTop: 4, fontFamily: SANS, fontSize: 32, color: C.ink2 }}>{c.sub}</div>
               <div style={{ marginTop: 14, display: "flex", gap: 16, alignItems: "center" }}>
-                <span style={{ fontFamily: SANS, fontSize: 28, fontWeight: 600, padding: "8px 20px", borderRadius: 999, background: c.inr >= 0 ? C.gainSoft : C.lossSoft, color: c.inr >= 0 ? C.gain : C.loss }}>{c.badge}</span>
+                <span style={{ fontFamily: SANS, fontSize: 28, fontWeight: 600, padding: "8px 20px", borderRadius: 999, background: amountOf(c) >= 0 ? C.gainSoft : C.lossSoft, color: amountOf(c) >= 0 ? C.gain : C.loss }}>{c.badge}</span>
               </div>
               <div style={{ marginTop: 16, fontFamily: SANS, fontSize: 34, lineHeight: 1.3, color: C.ink2 }}>{c.note}</div>
             </Card>
@@ -229,7 +230,7 @@ const Trades: React.FC<{ s: Extract<Scene, { kind: "trades" }> }> = ({ s }) => {
           return f >= at ? (
             <div style={{ ...rise(p, 24), display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "10px 12px", fontFamily: SANS }}>
               <span style={{ fontSize: 40, color: C.ink2 }}>{s.total.label}</span>
-              <span style={{ fontSize: 64, fontWeight: 700, color: s.total.inr >= 0 ? C.gain : C.loss, fontVariantNumeric: "tabular-nums" }}><Count to={s.total.inr} delay={at} /></span>
+              <span style={{ fontSize: 64, fontWeight: 700, color: amountOf(s.total) >= 0 ? C.gain : C.loss, fontVariantNumeric: "tabular-nums" }}><Count to={amountOf(s.total)} delay={at} /></span>
             </div>
           ) : null;
         })()}
@@ -302,12 +303,12 @@ const Scoreboard: React.FC<{ s: Extract<Scene, { kind: "scoreboard" }> }> = ({ s
       <div style={{ marginTop: 40, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 26 }}>
         {s.tiles.map((t, i) => {
           const at = 6 + i * 8; const p = spring({ frame: f - at, fps, config: { damping: 18 } });
-          const color = t.kind === "inr" ? (t.value >= 0 ? C.gain : C.loss) : C.ink;
+          const color = t.kind !== "ratio" ? (t.value >= 0 ? C.gain : C.loss) : C.ink;
           return (
             <Card key={i} style={{ padding: "36px 36px", ...rise(p, 40), gridColumn: i === 0 ? "1 / span 2" : undefined }}>
               <div style={{ fontFamily: SANS, fontSize: 34, color: C.ink2 }}>{t.label}</div>
               <div style={{ marginTop: 10, fontFamily: SANS, fontSize: i === 0 ? 104 : 80, fontWeight: 650, letterSpacing: "-0.03em", color, fontVariantNumeric: "tabular-nums" }}>
-                {t.kind === "inr" ? <Count to={t.value} delay={at} /> : <><Count to={t.value} delay={at} kind="plain" /><span style={{ color: C.ink3, fontSize: "0.6em" }}> of {t.of}</span></>}
+                {t.kind !== "ratio" ? <Count to={t.value} delay={at} /> : <><Count to={t.value} delay={at} kind="plain" /><span style={{ color: C.ink3, fontSize: "0.6em" }}> of {t.of}</span></>}
               </div>
               <div style={{ marginTop: 6, fontFamily: SANS, fontSize: 30, color: C.ink3 }}>{t.foot}</div>
             </Card>
@@ -355,6 +356,7 @@ const Captions: React.FC<{ lines: Line[] }> = ({ lines }) => {
 
 // ------------------------------------------------------------------ root
 export const RokiDaily: React.FC<Props> = (props) => {
+  setCcy(props.ccy);
   const { fps } = useVideoConfig(); const f = useCurrentFrame();
   return (
     <AbsoluteFill style={{ background: C.canvas, fontFamily: SANS }}>

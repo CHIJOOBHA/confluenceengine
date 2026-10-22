@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 import type { EngineView, PaperTrade, Prediction } from "../types";
 import { PRED_EXPECTED } from "../core/learning";
-import { Badge, Empty, MARKET_NAME, PageHeader, Panel, RULE_NAME, TableWrap, VERDICT, dateTimeIST, dayLabel, inr, price, share, tone } from "../ui/kit";
+import { Badge, Empty, MARKET_NAME, PageHeader, Panel, RULE_NAME, TableWrap, VERDICT, dateTimeIST, dayLabel, inr, MoneySum, moneyTxt, price, share, tone } from "../ui/kit";
 import { callSentence } from "./Overview";
 
 function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: [T, string][] }) {
@@ -75,15 +75,14 @@ export function Trades({ view }: { view: EngineView }) {
   const xs = view.trades
     .filter((t) => (mode === "all" || t.mode === mode) && (state === "closed" ? t.status === "closed" : t.status === "open" || t.status === "pending"))
     .sort((a, b) => b.session.localeCompare(a.session) || (b.exitTime || 0) - (a.exitTime || 0));
-  const total = xs.reduce((s, t) => s + (t.pnlInr ?? 0), 0);
   return (
     <>
-      <PageHeader title="Trades" sub="Every paper trade with its entry, exit and result on ₹1 lakh, costs included."
+      <PageHeader title="Trades" sub="Every paper trade with its entry, exit and result, costs included. Indian trades are ₹1 lakh each, in rupees; US, gold, oil and crypto trades are $1,000 each, in dollars."
         actions={<>
           <Segmented value={state} onChange={setState} options={[["closed", "Closed"], ["open", "Open & waiting"]]} />
           <Segmented value={mode} onChange={setMode} options={[["active", "Counted"], ["shadow", "Learning"], ["all", "All"]]} />
         </>} />
-      <Panel title={state === "closed" ? <>{xs.length} trades · <span className={tone(total)}>{inr(total)}</span></> : `${xs.length} trades`} flush>
+      <Panel title={state === "closed" ? <>{xs.length} trades · <MoneySum trades={xs} /></> : `${xs.length} trades`} flush>
         {xs.length ? <TradeTable trades={xs} /> : <Empty title="No trades in this view" />}
       </Panel>
     </>
@@ -94,7 +93,7 @@ function TradeTable({ trades }: { trades: PaperTrade[] }) {
   return (
     <TableWrap max="max-h-[70vh]">
       <table className="tbl">
-        <thead><tr><th>Day</th><th>Market</th><th>Rule</th><th>Side</th><th className="r">Entry</th><th className="r">Exit</th><th>Outcome</th><th className="r">Return</th><th className="r">On ₹1 lakh</th><th>Broker</th></tr></thead>
+        <thead><tr><th>Day</th><th>Market</th><th>Rule</th><th>Side</th><th className="r">Entry</th><th className="r">Exit</th><th>Outcome</th><th className="r">Return</th><th className="r">Result</th><th>Broker</th></tr></thead>
         <tbody>
           {trades.map((t) => (
             <tr key={t.id} title={t.reason}>
@@ -106,7 +105,7 @@ function TradeTable({ trades }: { trades: PaperTrade[] }) {
               <td className="r">{t.exit !== null ? <>{price(t.exit)}<div className="text-xs text-ink-3">{dateTimeIST(t.exitTime)}</div></> : <span className="text-ink-3">{t.status === "open" ? `stop ${price(t.stop)}` : "—"}</span>}</td>
               <td className="whitespace-nowrap">{t.review ? <Badge kind={VERDICT[t.review.verdict].won ? "gain" : "loss"}>{VERDICT[t.review.verdict].label}</Badge> : <Badge>{t.status === "pending" ? "Waiting" : t.status === "open" ? "Open" : "Closed"}</Badge>}</td>
               <td className={`r ${tone(t.retPct ?? t.mtmPct)}`}>{t.retPct !== null ? `${t.retPct > 0 ? "+" : ""}${t.retPct.toFixed(2)}%` : t.mtmPct !== null ? `${t.mtmPct > 0 ? "+" : ""}${t.mtmPct.toFixed(2)}%` : "—"}</td>
-              <td className={`r font-medium ${tone(t.pnlInr)}`}>{t.pnlInr !== null ? inr(t.pnlInr) : "—"}</td>
+              <td className={`r font-medium ${tone(t.retPct)}`}>{t.retPct !== null ? moneyTxt(t) : "—"}</td>
               <td className="text-xs muted max-w-[220px]">{t.brokerNote || "—"}</td>
             </tr>
           ))}

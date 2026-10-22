@@ -6,7 +6,7 @@ import { Download } from "lucide-react";
 import type { EngineView, PaperTrade } from "../types";
 import type { Verdict } from "../core/review";
 import { reviewsCsv } from "../core/learning";
-import { Badge, Empty, PageHeader, Panel, RULE_NAME, VERDICT, dayLabel, inr, tone } from "../ui/kit";
+import { Badge, Empty, PageHeader, Panel, RULE_NAME, VERDICT, dayLabel, MoneySum, moneyOf, moneyTxt, tone, won } from "../ui/kit";
 
 export function downloadCsv(trades: PaperTrade[]) {
   const blob = new Blob(["﻿" + reviewsCsv(trades)], { type: "text/csv;charset=utf-8" });
@@ -35,7 +35,7 @@ function Reasons({ trades }: { trades: PaperTrade[] }) {
 }
 
 function ReviewCard({ t }: { t: PaperTrade; key?: string }) {
-  const r = t.review!, v = VERDICT[r.verdict], pnl = t.pnlInr ?? 0;
+  const r = t.review!, v = VERDICT[r.verdict], pnl = moneyOf(t).amount;
   const rows: [string, string][] = [["Why Roki took it", r.why], ["What the price did", r.happened], [v.won ? "Why it won" : "Why it lost", r.because], ["What it teaches", r.lesson]];
   return (
     <article className="panel">
@@ -49,7 +49,7 @@ function ReviewCard({ t }: { t: PaperTrade; key?: string }) {
         </div>
         <div className="ml-auto flex items-center gap-3">
           <Badge kind={v.won ? "gain" : "loss"} dot>{v.label}</Badge>
-          <span className={`text-[17px] font-semibold num ${tone(pnl)}`}>{inr(pnl)}</span>
+          <span className={`text-[17px] font-semibold num ${tone(pnl)}`}>{moneyTxt(t)}</span>
         </div>
       </header>
       <dl className="grid md:grid-cols-2">
@@ -70,8 +70,7 @@ export function Review({ view }: { view: EngineView }) {
   const days = useMemo(() => [...new Set(shown.map((t) => t.session))].sort().reverse(), [shown]);
   const [day, setDay] = useState<string | null>(null);
   const sel = day && days.includes(day) ? day : days[0];
-  const onDay = shown.filter((t) => t.session === sel).sort((a, b) => (b.pnlInr ?? 0) - (a.pnlInr ?? 0));
-  const sum = (xs: PaperTrade[]) => xs.reduce((s, t) => s + (t.pnlInr ?? 0), 0);
+  const onDay = shown.filter((t) => t.session === sel).sort((a, b) => (b.retPct ?? 0) - (a.retPct ?? 0));
 
   return (
     <>
@@ -83,7 +82,7 @@ export function Review({ view }: { view: EngineView }) {
           <button className="btn btn-secondary" onClick={() => downloadCsv(view.trades)}><Download />Download all</button>
         </>} />
 
-      <Panel title={<>All {shown.length} reviewed {learning ? "" : "counted "}trades: <span className={tone(sum(shown))}>{inr(sum(shown))}</span></>} flush className="mb-4">
+      <Panel title={<>All {shown.length} reviewed {learning ? "" : "counted "}trades: <MoneySum trades={shown} /></>} flush className="mb-4">
         <Reasons trades={shown} />
       </Panel>
 
@@ -91,17 +90,17 @@ export function Review({ view }: { view: EngineView }) {
         <>
           <div role="tablist" aria-label="Day" className="flex gap-2 overflow-x-auto pb-2 mb-2">
             {days.map((d) => {
-              const xs = shown.filter((t) => t.session === d), s = sum(xs), on = d === sel;
+              const xs = shown.filter((t) => t.session === d), on = d === sel;
               return (
                 <button key={d} role="tab" aria-selected={on} onClick={() => setDay(d)}
                   className={`flex-none rounded-lg border px-3 py-2 text-left transition-colors ${on ? "border-roki bg-roki-soft" : "border-line bg-surface hover:border-line-strong"}`}>
                   <div className="text-[13px] font-medium">{dayLabel(d)}</div>
-                  <div className="text-xs num"><span className={tone(s)}>{inr(s)}</span><span className="text-ink-3"> · {xs.length} trade{xs.length > 1 ? "s" : ""}</span></div>
+                  <div className="text-xs num"><MoneySum trades={xs} /><span className="text-ink-3"> · {xs.length} trade{xs.length > 1 ? "s" : ""}</span></div>
                 </button>
               );
             })}
           </div>
-          <p className="text-[13px] text-ink-2 mb-3">{dayLabel(sel, true)}: {onDay.filter((t) => (t.pnlInr ?? 0) > 0).length} won, {onDay.filter((t) => (t.pnlInr ?? 0) <= 0).length} lost, <span className={`font-medium ${tone(sum(onDay))}`}>{inr(sum(onDay))}</span>.</p>
+          <p className="text-[13px] text-ink-2 mb-3">{dayLabel(sel, true)}: {onDay.filter(won).length} won, {onDay.filter((t) => !won(t)).length} lost, <span className="font-medium"><MoneySum trades={onDay} /></span>.</p>
           <div className="grid gap-3">{onDay.map((t) => <ReviewCard key={t.id} t={t} />)}</div>
         </>
       ) : <Panel><Empty title="No reviewed trades yet">Each trade is reviewed the moment it closes.</Empty></Panel>}

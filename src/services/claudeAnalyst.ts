@@ -10,6 +10,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import { totals } from "../core/markets.js";
 import { BrainState } from "../core/engineRunner.js";
 
 export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5-5";
@@ -22,7 +23,7 @@ Rules:
 - The odds are historical frequencies, not certainties. Say so once.
 - Do not give buy or sell advice and do not suggest position sizes. Describe what the engine's rules did and will watch.
 - Paper trades are simulated research positions.
-Format: 1) What happened (calls scored and trades closed, with rupee P&L on Rs 1 lakh per trade). 2) Open trades. 3) Next session: for Nifty, Sensex and Bank Nifty give yesterday's high / close / low, the odds that the high or low breaks, and any trade trigger; one line for other markets with triggers. Keep it under 250 words.`;
+Format: 1) What happened (calls scored and trades closed, with P&L in each market's own currency: Indian trades in rupees on Rs 1 lakh, US, gold, oil and crypto trades in US dollars on $1,000; never add rupees to dollars). 2) Open trades. 3) Next session: for Nifty, Sensex and Bank Nifty give yesterday's high / close / low, the odds that the high or low breaks, and any trade trigger; one line for other markets with triggers. Keep it under 250 words.`;
 
 export function briefInput(state: BrainState) {
   const preds = Object.values(state.predictions).sort((a, b) => b.session.localeCompare(a.session));
@@ -38,9 +39,9 @@ export function briefInput(state: BrainState) {
     recentClosedTrades: closed.slice(0, 20),
     totals: {
       activeClosed: closed.filter((t) => t.mode === "active").length,
-      activePnlInr: Math.round(sum(closed.filter((t) => t.mode === "active").map((t) => t.pnlInr || 0))),
+      activePnl: totals(closed.filter((t) => t.mode === "active")),
       shadowClosed: closed.filter((t) => t.mode === "shadow").length,
-      shadowPnlInr: Math.round(sum(closed.filter((t) => t.mode === "shadow").map((t) => t.pnlInr || 0))),
+      shadowPnl: totals(closed.filter((t) => t.mode === "shadow")),
     },
   };
 }
