@@ -8,6 +8,8 @@
  */
 
 import { reviewTrade } from "./review.js";
+import { guardData } from "./dataGuard.js";
+import { brainStatus } from "./brainCheck.js";
 import {
   DailyBar, IntradayBar, PaperTrade, buildContext, signalsAtOpen, nightOdds, openOdds, newTrade, advanceTrade, Market, usMoveFrom, UsMove,
 } from "./brain.js";
@@ -127,6 +129,13 @@ export async function runCycle(
     if (sp.length > 300) { usMove = usMoveFrom(sp); usPendingBefore = nextSession(spInst, sp[sp.length - 1].date); }
   } catch { /* fall back to yesterday's close position alone */ }
 
+  // No silent changes: an unapproved brain makes and scores predictions but opens no new trades.
+  const brain = brainStatus();
+  if (!brain.ok) {
+    notes.push(`BRAIN CHECK: the running brain (${brain.fingerprint}) is not the approved one (${brain.approved}, ${brain.approvedAt}). No new trades until the change is approved.`);
+    console.log(`[BRAIN] unapproved ${brain.fingerprint} vs ${brain.approved}`);
+  }
+
   const putTrade = (t: PaperTrade) => {
     const before = state.trades[t.id];
     if (!before || JSON.stringify(before) !== JSON.stringify(t)) { state.trades[t.id] = t; changedTrades.set(t.id, t); }
@@ -145,6 +154,12 @@ export async function runCycle(
       continue;
     }
     if (fetchers === defaultFetchers) await sleep(250);
+    const guard = guardData(inst.market, daily, intraday);
+    if (!guard.ok) {
+      notes.push(`DATA CHECK: ${inst.name} skipped this cycle, prices look wrong: ${guard.problems.join("; ")}`);
+      console.log(`[DATA] ${inst.name} rejected: ${guard.problems.join("; ")}`);
+      continue;
+    }
 
     const done = daily.filter((b) => now >= sessionBounds(inst, b.date).end);
     if (done.length < 300) { notes.push(`${inst.name}: not enough history`); continue; }
@@ -182,7 +197,7 @@ export async function runCycle(
       }
       for (const s of signalsAtOpen(inst.market, ctx, open)) {
         const t = newTrade(inst.name, inst.market, b.date, s);
-        if (!state.trades[t.id]) putTrade(t);
+        if (!state.trades[t.id] && brain.ok) putTrade(t);
       }
     }
 

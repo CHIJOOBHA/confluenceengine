@@ -1,0 +1,21 @@
+# Every push: the app must type-check, and Roki's brain must match the approved fingerprint.
+# A change to any rule, cost, expectation or data limit fails this check until it is approved with
+#   npx tsx scripts/brain-approve.ts "what changed and why"
+# (and even if it were deployed unapproved, the engine itself opens no new trades).
+name: brain-check
+on:
+  push: {}
+  pull_request: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Type check
+        run: npx tsc --noEmit -p .
+      - name: Brain matches the approved version
+        run: npx tsx scripts/brain-check.ts

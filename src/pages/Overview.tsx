@@ -120,6 +120,19 @@ export function Overview({ view }: { view: EngineView }) {
         <p className="mt-1 text-[13px] text-ink-2">{d.open.length} open, {d.closedToday.length} closed today{d.waiting.length ? `, ${d.waiting.length} waiting for their price` : ""}.</p>
       </section>
 
+      {view.notes.some((n) => n.startsWith("BRAIN CHECK")) && (
+        <section className="panel p-4 mb-4 border-l-4" style={{ borderLeftColor: "var(--loss)" }}>
+          <p className="text-[14px] font-medium">Roki's rules changed without approval, so no new trades are opening</p>
+          <p className="mt-1 text-[13px] text-ink-2">{view.notes.find((n) => n.startsWith("BRAIN CHECK"))!.replace("BRAIN CHECK: ", "")} Predictions continue and open trades still close.</p>
+        </section>
+      )}
+      {view.notes.some((n) => n.startsWith("DATA CHECK")) && (
+        <section className="panel p-4 mb-4 border-l-4" style={{ borderLeftColor: "var(--sun)" }}>
+          <p className="text-[14px] font-medium">Some prices looked wrong, so Roki skipped those markets this cycle</p>
+          <ul className="mt-1 text-[13px] text-ink-2 list-disc pl-5">{view.notes.filter((n) => n.startsWith("DATA CHECK")).map((n) => <li key={n}>{n.replace("DATA CHECK: ", "")}</li>)}</ul>
+        </section>
+      )}
+
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4 mb-4">
         <Stat label="Since the start" value={<MoneySum trades={d.all} stack />} foot="India in rupees, global markets in dollars; closed plus open at today's price" />
         <Stat label="Trades won" value={share(d.won, d.won + d.lost)} foot={`${d.won} won, ${d.lost} lost`} />

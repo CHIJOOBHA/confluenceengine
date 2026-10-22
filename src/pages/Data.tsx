@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import type { EngineView, PaperTrade, Prediction } from "../types";
 import { PRED_EXPECTED } from "../core/learning";
 import { Badge, Empty, MARKET_NAME, PageHeader, Panel, RULE_NAME, TableWrap, VERDICT, dateTimeIST, dayLabel, inr, MoneySum, moneyTxt, price, share, tone } from "../ui/kit";
+import { brainStatus } from "../core/brainCheck";
 import { callSentence } from "./Overview";
 
 function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: [T, string][] }) {
@@ -65,6 +66,18 @@ export function Predictions({ view }: { view: EngineView }) {
         </TableWrap>
       </Panel>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- Brain version
+function BrainVersion() {
+  const b = useMemo(() => brainStatus(), []);
+  return (
+    <section className="panel p-4 mb-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+      <Badge kind={b.ok ? "gain" : "loss"} dot>{b.ok ? "Approved brain" : "Unapproved change"}</Badge>
+      <span className="text-[13px] text-ink-2">Version <span className="num font-medium text-ink">{b.fingerprint}</span>{b.ok ? <> · approved {b.approvedAt}: {b.note}</> : <> · approved version is {b.approved}</>}</span>
+      <span className="text-[12px] text-ink-3 basis-full">Every rule, cost and limit is fingerprinted. Any change, even one number, needs a recorded approval before Roki trades on it.</span>
+    </section>
   );
 }
 
@@ -148,6 +161,7 @@ export function Rules({ view }: { view: EngineView }) {
   return (
     <>
       <PageHeader title="Rules & safety" sub="Only rules that made money in both halves of 5 years of testing are counted. Everything that failed testing stays out of the engine." />
+      <BrainVersion />
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
         <Panel title="Rules Roki trades" flush>
           <ul className="divide-y divide-[var(--line)]">
