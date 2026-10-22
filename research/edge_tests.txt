@@ -1,0 +1,28 @@
+=== 1. Overnight US move vs Nifty's day (first half / second half) ===
+  US fell more than 1%   high breaks 25% (n=104) / 26% (n=159) | low breaks 77% (n=104) / 77% (n=159) | closes above yesterday 35% (n=104) / 30% (n=159)
+  US fell 0.3-1%         high breaks 41% (n=189) / 40% (n=230) | low breaks 56% (n=189) / 58% (n=230) | closes above yesterday 43% (n=189) / 43% (n=230)
+  US flat                high breaks 58% (n=495) / 55% (n=377) | low breaks 42% (n=495) / 44% (n=377) | closes above yesterday 56% (n=495) / 56% (n=377)
+  US rose 0.3-1%         high breaks 69% (n=296) / 63% (n=287) | low breaks 33% (n=296) / 41% (n=287) | closes above yesterday 65% (n=296) / 57% (n=287)
+  US rose more than 1%   high breaks 78% (n=144) / 73% (n=175) | low breaks 24% (n=144) / 26% (n=175) | closes above yesterday 69% (n=144) / 67% (n=175)
+  (base rates)          high breaks 58% (n=1228) / 53% (n=1228) | low breaks 43% (n=1228) / 47% (n=1228)
+  Same CLV, split by US move (high-break rate):
+    low close : US down 15% (n=224) | US flat 19% | US up 35% (n=209)
+    mid       : US down 32% (n=279) | US flat 55% | US up 71% (n=370)
+    high close: US down 64% (n=179) | US flat 87% | US up 89% (n=323)
+
+=== 3. India VIX level (previous close) vs the day ===
+  VIX < 12   n= 411 day range 1.04x normal | high breaks 56% | low breaks 45% | gap fills (touch yesterday's close) 63%
+  VIX 12-15  n= 855 day range 1.03x normal | high breaks 55% | low breaks 46% | gap fills (touch yesterday's close) 65%
+  VIX 15-20  n= 744 day range 1.01x normal | high breaks 53% | low breaks 47% | gap fills (touch yesterday's close) 63%
+  VIX >= 20  n= 429 day range 1.06x normal | high breaks 57% | low breaks 41% | gap fills (touch yesterday's close) 62%
+
+=== 4. Weekly expiry days (Thursday until Aug 2025, Tuesday from Sep 2025) ===
+  expiry days  n= 520 range 1.01x | close within 0.25 normal day of open 28% | gap fills 65% | high breaks 54%
+  other days   n=1936 range 1.03x | close within 0.25 normal day of open 31% | gap fills 63% | high breaks 56%
+  big gaps on expiry days fill 38% (n=125) vs other days 32% (n=471)
+
+=== 2. Intraday momentum: first hour vs last hour (Nifty, 1-hour bars, ~2 years) ===
+  first half: days=361 last hour same direction as first hour 51%; after big first hours 45% (n=108); corr -0.00
+     trade the last hour in the first hour's direction: -0.025% a day after costs, win 45%
+  second half: days=362 last hour same direction as first hour 52%; after big first hours 54% (n=109); corr 0.04
+     trade the last hour in the first hour's direction: -0.026% a day after costs, win 45%

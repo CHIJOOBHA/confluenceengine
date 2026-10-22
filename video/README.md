@@ -15,4 +15,4 @@ Two vertical videos a day (1080×1920, 60–80 s): **India** and **Global**.
    - Every spoken, captioned and on-screen number must appear in the day's data (or be listed in `extraFacts`).
    - `audio.py`: voice `roki` (British male blend, main) or `roki-alt` (American female blend), Kokoro running locally
      (model files from github.com/thewh1teagle/kokoro-onnx releases, folder in `ROKI_TTS`); generated music bed and cues.
-4. **Render**: `npx remotion render src/index.ts RokiDaily out/<id>.mp4 --props=props/<id>.json --browser-executable=<headless chrome>`
+4. **Render** (style "Roki Ink"): `npx remotion render src/index.ts RokiInk out/<id>.mp4 --props=props/<id>.json --browser-executable=<headless chrome>`
