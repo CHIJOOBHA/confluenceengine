@@ -86,6 +86,8 @@ async function audit(st: Store, type: "TRADE" | "SYSTEM", data: unknown) {
 }
 
 function briefDue(meta: Meta, now: number): boolean {
+  // Automatic AI briefs are off (owner, 22 Oct 2026: save tokens). Set AUTO_BRIEF=on in Vercel to turn them back on.
+  if (process.env.AUTO_BRIEF !== "on") return false;
   if (!process.env.ANTHROPIC_API_KEY) return false;
   const ist = new Date(now + 5.5 * 3600000);
   const mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
