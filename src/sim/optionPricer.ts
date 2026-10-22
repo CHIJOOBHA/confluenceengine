@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - SIMULATOR OPTION PRICER
+ * ROKI - SIMULATOR OPTION PRICER
  *
  * Prices Indian index and stock options from the live index price and India VIX,
  * so paper orders fill at realistic premiums without a paid data feed.

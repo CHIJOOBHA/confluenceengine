@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - DHAN BROKER BRIDGE (API v2)
+ * ROKI - DHAN BROKER BRIDGE (API v2)
  *
  * Server-side only. Credentials come from server environment variables
  * (DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN) and are never sent to the browser or

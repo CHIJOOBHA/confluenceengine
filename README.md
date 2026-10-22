@@ -1,4 +1,4 @@
-# Confluence Engine
+# Roki
 
 A rule-based research and paper-trading engine for Indian and US markets.
 It trades only rules that were tested on real prices and survived, runs on

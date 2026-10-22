@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - THE BRAIN
+ * ROKI - THE BRAIN
  *
  * Rule-based signals and probability model, ported from the tested research
  * engine (Market Prediction Ledger). Pure functions only: no network, no I/O,

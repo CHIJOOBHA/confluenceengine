@@ -1,26 +1,47 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * ROKI - design tokens
+ *   paper  #F6F7FB  background        ink  #13163A  text
+ *   roki   #6B3BFF  brand violet      sun  #FFB21E  highlight
+ *   gain   #0FA968  profit            loss #E5484D  loss
+ * Older class names are kept as aliases so every screen picks up the new look:
+ *   gold -> roki, ivory -> ink, obsidian -> paper.
+ */
 @theme inline {
-    --font-serif: 'Cormorant Garamond', serif;
-    --font-sans: 'Inter', sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
-    
-    /* Golden Ratio Scale for Spacing & Sizing */
+    --font-display: 'Sora', ui-sans-serif, system-ui, sans-serif;
+    --font-serif: 'Sora', ui-sans-serif, system-ui, sans-serif;
+    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'Sora', ui-sans-serif, system-ui, sans-serif;
+
     --spacing-phi-sm: 0.618rem;
     --spacing-phi: 1rem;
     --spacing-phi-lg: 1.618rem;
     --spacing-phi-xl: 2.618rem;
     --spacing-phi-2xl: 4.236rem;
 
-    --color-gold: #d4af37;
-    --color-emerald: #064e3b;
-    --color-ivory: #fdfcf0;
-    --color-obsidian: #08090a;
+    --color-roki: var(--roki);
+    --color-roki-soft: var(--roki-soft);
+    --color-sun: var(--sun);
+    --color-sun-soft: var(--sun-soft);
+    --color-gain: var(--gain);
+    --color-gain-soft: var(--gain-soft);
+    --color-loss: var(--loss);
+    --color-loss-soft: var(--loss-soft);
+    --color-ink: var(--ink);
+    --color-paper: var(--paper);
+    --color-surface: var(--surface);
+    --color-line: var(--line);
+
+    --color-gold: var(--roki);
+    --color-ivory: var(--ink);
+    --color-obsidian: var(--paper);
+    --color-emerald: var(--gain);
 
     --color-background: var(--background);
     --color-foreground: var(--foreground);
@@ -44,161 +65,114 @@
 }
 
 :root {
-    --background: #08090a;
-    --foreground: #fdfcf0;
-    
-    --card: rgba(13, 15, 17, 0.7);
-    --card-foreground: #fdfcf0;
-    
-    --popover: #0d0f11;
-    --popover-foreground: #fdfcf0;
-    
-    --primary: #d4af37;
-    --primary-foreground: #08090a;
-    
-    --secondary: #064e3b;
-    --secondary-foreground: #fdfcf0;
-    
-    --muted: rgba(253, 252, 240, 0.2);
-    --muted-foreground: rgba(253, 252, 240, 0.85);
-    
-    --accent: rgba(212, 175, 55, 0.25);
-    --accent-foreground: #e5c05c;
-    
-    --destructive: #7f1d1d;
-    --destructive-foreground: #fdfcf0;
-    
-    --border: rgba(212, 175, 55, 0.25);
-    --input: rgba(212, 175, 55, 0.05);
-    --ring: #d4af37;
-    
-    --radius: 1.618rem; /* Golden ratio radius */
+    --paper: #F6F7FB;
+    --surface: #FFFFFF;
+    --ink: #13163A;
+    --line: #E4E6F0;
+    --roki: #6B3BFF;
+    --roki-soft: #EFEAFF;
+    --sun: #FFB21E;
+    --sun-soft: #FFF4DC;
+    --gain: #0FA968;
+    --gain-soft: #E3F7EE;
+    --loss: #E5484D;
+    --loss-soft: #FDECEC;
+
+    --background: var(--paper);
+    --foreground: var(--ink);
+    --card: var(--surface);
+    --card-foreground: var(--ink);
+    --popover: var(--surface);
+    --popover-foreground: var(--ink);
+    --primary: var(--roki);
+    --primary-foreground: #FFFFFF;
+    --secondary: var(--roki-soft);
+    --secondary-foreground: var(--roki);
+    --muted: #EEF0F6;
+    --muted-foreground: #5A5E7D;
+    --accent: var(--roki-soft);
+    --accent-foreground: var(--roki);
+    --destructive: var(--loss);
+    --destructive-foreground: #FFFFFF;
+    --border: var(--line);
+    --input: var(--line);
+    --ring: var(--roki);
+    --radius: 0.9rem;
+    color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0E1030;
+    --surface: #171A42;
+    --ink: #EEF0FF;
+    --line: #2A2E5E;
+    --roki: #8F6BFF;
+    --roki-soft: #2A2266;
+    --sun: #FFC24D;
+    --sun-soft: #3A2E12;
+    --gain: #2FD18C;
+    --gain-soft: #12352A;
+    --loss: #FF6B70;
+    --loss-soft: #3D1A22;
+    --muted: #1F2350;
+    --muted-foreground: #A6AAD0;
+    color-scheme: dark;
+  }
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
-  
   body {
     @apply bg-background text-foreground antialiased;
-    background-image: 
-      linear-gradient(rgba(212, 175, 55, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(212, 175, 55, 0.03) 1px, transparent 1px),
-      radial-gradient(circle at 0% 0%, rgba(6, 78, 59, 0.2) 0%, transparent 50%),
-      radial-gradient(circle at 100% 100%, rgba(212, 175, 55, 0.15) 0%, transparent 50%);
-    background-size: 40px 40px, 40px 40px, 100% 100%, 100% 100%;
-    background-attachment: fixed;
+    font-family: var(--font-sans);
+    font-feature-settings: "tnum" 1;
   }
-
-  h1, h2, h3, .font-serif {
-    font-family: var(--font-serif);
-    letter-spacing: -0.01em;
-    text-shadow: 0 0 10px rgba(212, 175, 55, 0.1);
+  h1, h2, h3, .font-serif, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--roki);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
   }
 }
 
-/* Silk Smooth Scrollbar */
-::-webkit-scrollbar {
-  width: 3px;
+/* Buttons (old names kept so every screen uses them) */
+.neon-box-gold, .btn-quiet {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  transition: border-color .15s, background .15s;
 }
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(212, 175, 55, 0.3);
-  border-radius: 10px;
-}
+.neon-box-gold:hover, .btn-quiet:hover { border-color: var(--roki); }
 
-/* Custom Cursor Styles - Enhanced for visibility */
-.custom-cursor {
-  width: 12px;
-  height: 12px;
-  background: #d4af37;
-  border-radius: 50%;
-  position: fixed;
-  pointer-events: none;
-  z-index: 99999;
-  box-shadow: 0 0 15px #d4af37, 0 0 30px #d4af37;
+.btn-primary {
+  background: var(--roki);
+  color: #fff;
+  border: 1px solid var(--roki);
+  transition: filter .15s;
 }
-
-.custom-cursor-follower {
-  width: 44px;
-  height: 44px;
-  border: 2px solid rgba(212, 175, 55, 0.6);
-  border-radius: 50%;
-  position: fixed;
-  pointer-events: none;
-  z-index: 99998;
-  box-shadow: inset 0 0 10px rgba(212, 175, 55, 0.3), 0 0 20px rgba(212, 175, 55, 0.2);
-}
-
-/* Sci-fi HUD Elements */
-.hud-corner {
-  position: absolute;
-  width: 15px;
-  height: 15px;
-  border-color: rgba(212, 175, 55, 0.3);
-  pointer-events: none;
-}
-
-.hud-corner-tl { top: 0; left: 0; border-top: 1px solid; border-left: 1px solid; border-top-left-radius: 4px; }
-.hud-corner-tr { top: 0; right: 0; border-top: 1px solid; border-right: 1px solid; border-top-right-radius: 4px; }
-.hud-corner-bl { bottom: 0; left: 0; border-bottom: 1px solid; border-left: 1px solid; border-bottom-left-radius: 4px; }
-.hud-corner-br { bottom: 0; right: 0; border-bottom: 1px solid; border-right: 1px solid; border-bottom-right-radius: 4px; }
-
-@keyframes scan {
-  0% { transform: translateY(-100%); opacity: 0; }
-  50% { opacity: 0.5; }
-  100% { transform: translateY(1000%); opacity: 0; }
-}
-
-.scan-line {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(to right, transparent, rgba(212, 175, 55, 0.1), transparent);
-  z-index: 10000;
-  pointer-events: none;
-  animation: scan 8s linear infinite;
-}
-
-/* Neon Interaction Principle */
-.neon-box-gold {
-  box-shadow: 0 0 10px rgba(212, 175, 55, 0.1), inset 0 0 8px rgba(212, 175, 55, 0.05);
-  border: 1px solid rgba(212, 175, 55, 0.3);
-}
-.neon-box-gold:hover {
-  box-shadow: 0 0 20px rgba(212, 175, 55, 0.2), inset 0 0 12px rgba(212, 175, 55, 0.1);
-  border-color: rgba(212, 175, 55, 0.5);
-}
-
-.neon-box-emerald {
-  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15), inset 0 0 8px rgba(16, 185, 129, 0.05);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-.neon-box-emerald:hover {
-  box-shadow: 0 0 20px rgba(16, 185, 129, 0.25), inset 0 0 12px rgba(16, 185, 129, 0.1);
-  border-color: rgba(16, 185, 129, 0.5);
-}
+.btn-primary:hover { filter: brightness(1.08); }
 
 .neon-box-red {
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.15), inset 0 0 8px rgba(239, 68, 68, 0.05);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--loss-soft);
+  border: 1px solid color-mix(in srgb, var(--loss) 35%, transparent);
+  color: var(--loss);
 }
-.neon-box-red:hover {
-  box-shadow: 0 0 20px rgba(239, 68, 68, 0.25), inset 0 0 12px rgba(239, 68, 68, 0.1);
-  border-color: rgba(239, 68, 68, 0.5);
+.neon-box-red:hover { border-color: var(--loss); }
+
+.neon-box-emerald {
+  background: var(--gain-soft);
+  border: 1px solid color-mix(in srgb, var(--gain) 35%, transparent);
+  color: var(--gain);
 }
 
-.neon-text-emerald {
-  color: #10b981;
-  text-shadow: 0 0 10px rgba(16, 185, 129, 0.6), 0 0 20px rgba(16, 185, 129, 0.2);
-}
-
-.neon-text-gold {
-  color: #d4af37;
-  text-shadow: 0 0 10px rgba(212, 175, 55, 0.6), 0 0 20px rgba(212, 175, 55, 0.2);
-}
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }

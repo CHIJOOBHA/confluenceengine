@@ -1,6 +1,6 @@
 /**
- * CONFLUENCE ENGINE - PROPRIETARY AND CONFIDENTIAL
- * Copyright (c) 2026 Confluence Quantitative Research Group.
+ * ROKI - PROPRIETARY AND CONFIDENTIAL
+ * Copyright (c) 2026 Roki.
  * All rights reserved.
  */
 

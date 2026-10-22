@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - RISK MANAGER
+ * ROKI - RISK MANAGER
  *
  * Playbook Rule 2: a small fixed rupee risk per trade, a wide safety stop
  * (1 ADR, never a tight one), and a hard cap on live trades and losses per day.

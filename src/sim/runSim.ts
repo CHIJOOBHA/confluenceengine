@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - SIMULATOR CYCLE
+ * ROKI - SIMULATOR CYCLE
  *
  * Runs the real live executor against the simulated broker. The simulator keeps
  * its own copy of the broker fields for each brain trade (account.links), so it

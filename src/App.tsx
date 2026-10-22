@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - DASHBOARD
+ * ROKI - DASHBOARD
  * Shows what the brain sees and does: next-session levels and odds, calls and
  * their results, paper trades and P&L, the Claude brief, and the safety controls.
  */
@@ -8,10 +8,9 @@ import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { RefreshCw, ShieldAlert, Sparkles, Activity } from "lucide-react";
-import { motion } from "motion/react";
+import { RefreshCw, ShieldAlert, Sparkles, Activity, LogOut } from "lucide-react";
 import { EngineView, PaperTrade, Prediction } from "./types";
-import { WealthSymbol } from "./components/WealthSymbol";
+import { RokiMark, RokiWordmark } from "./components/RokiMark";
 import { LoginGate } from "./components/LoginGate";
 import { SimulatorPanel } from "./components/SimulatorPanel";
 import { SimpleHome, RULE_NAME } from "./components/SimpleHome";
@@ -26,13 +25,13 @@ const time = (ms: number | null) => (ms ? new Date(ms).toLocaleString("en-IN", {
 const QUESTION: Record<string, string> = { N_H: "Night: high breaks?", N_L: "Night: low breaks?", O_G: "Open: gap fills?", O_C: "Open: closes above yesterday's close?" };
 
 function Pill({ tone, children }: { tone: "gold" | "green" | "red" | "muted"; children: ReactNode }) {
-  const c = { gold: "text-gold border-gold/30", green: "text-emerald-400 border-emerald-500/30", red: "text-red-400 border-red-500/30", muted: "text-ivory/50 border-ivory/15" }[tone];
-  return <span className={`inline-block px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-wider whitespace-nowrap ${c}`}>{children}</span>;
+  const c = { gold: "bg-roki-soft text-roki", green: "bg-gain-soft text-gain", red: "bg-loss-soft text-loss", muted: "bg-muted text-muted-foreground" }[tone];
+  return <span className={`inline-block px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${c}`}>{children}</span>;
 }
 
 function Signed({ v, suffix = "" }: { v: number | null; suffix?: string }) {
-  if (v === null || v === undefined) return <span className="text-ivory/40">—</span>;
-  return <span className={v > 0 ? "text-emerald-400" : v < 0 ? "text-red-400" : ""}>{v > 0 ? "+" : ""}{v.toFixed(2)}{suffix}</span>;
+  if (v === null || v === undefined) return <span className="text-muted-foreground">—</span>;
+  return <span className={v > 0 ? "text-gain" : v < 0 ? "text-loss" : ""}>{v > 0 ? "+" : ""}{v.toFixed(2)}{suffix}</span>;
 }
 
 /** Next Vercel cron run (vercel.json: 04:40, 10:10, 21:30 UTC, Mon-Fri), shown in IST. */
@@ -116,69 +115,72 @@ export default function App() {
   if (!user) return <LoginGate onLogin={setUser} />;
   if (!view) {
     return (
-      <div className="min-h-screen bg-obsidian text-ivory flex flex-col items-center justify-center gap-6">
-        <WealthSymbol className="w-20 h-20 animate-pulse" />
-        <span className="text-[10px] font-mono tracking-[0.5em] text-gold/50">{error ? error : "LOADING THE BRAIN"}</span>
+      <div className="min-h-screen bg-paper text-ink flex flex-col items-center justify-center gap-4">
+        <RokiMark className="w-14 h-14 animate-pulse" />
+        <span className="text-sm text-muted-foreground">{error ? error : "Roki is getting today's numbers…"}</span>
       </div>
     );
   }
 
-  const btn = "neon-box-gold px-4 py-2 text-[10px] font-mono text-gold/80 hover:bg-gold/5 transition-all uppercase tracking-widest rounded-sm disabled:opacity-40";
+  const btn = "btn-quiet px-3.5 py-2 text-sm font-medium rounded-full disabled:opacity-40 inline-flex items-center gap-2";
+  const updated = view.lastRun ? new Date(view.lastRun).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—";
 
   return (
-    <div className="min-h-screen bg-obsidian text-ivory p-4 md:p-phi-lg font-sans selection:bg-gold/30 relative overflow-x-hidden">
-      <motion.header initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center text-center gap-3 border-b border-gold/10 pb-6 mb-6">
-        <WealthSymbol className="w-9 h-9" />
-        <h1 className="text-xl md:text-3xl font-medium uppercase tracking-[0.25em]">CONFLUENCE <span className="font-light italic text-gold/30">ENGINE</span></h1>
-        <p className="text-[10px] font-mono tracking-[0.4em] uppercase text-ivory/40">Tested rules · real prices · paper first</p>
-        <div className="flex flex-wrap justify-center gap-2">
-          <Pill tone="muted">Updated {view.lastRun ? new Date(view.lastRun).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—"}</Pill>
-          <Pill tone={view.liveEnabled ? "red" : "gold"}>{view.liveEnabled ? "REAL orders ON" : "Paper money only"}</Pill>
-          {view.killSwitch && <Pill tone="red">Kill switch ON</Pill>}
+    <div className="min-h-screen bg-paper text-ink font-sans selection:bg-roki/20">
+      <header className="sticky top-0 z-30 bg-paper/85 backdrop-blur border-b border-line">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center gap-3">
+          <RokiWordmark />
+          <span className="hidden md:inline text-sm text-muted-foreground border-l border-line pl-3">An AI learning to trade, in public</span>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Pill tone="muted">Updated {updated}</Pill>
+            <Pill tone={view.liveEnabled ? "red" : "gold"}>{view.liveEnabled ? "Real orders on" : "Paper money only"}</Pill>
+            {view.killSwitch && <Pill tone="red">Kill switch on</Pill>}
+          </div>
         </div>
-        <div className="flex flex-wrap justify-center gap-3 pt-2">
-          <button className={btn} disabled={!!busy} onClick={() => act("run", "/api/run")}><RefreshCw className={`inline w-3 h-3 mr-2 ${busy === "run" ? "animate-spin" : ""}`} />Run now</button>
-          {view.claudeConfigured && <button className={btn} disabled={!!busy} onClick={() => act("brief", "/api/brief")}><Sparkles className="inline w-3 h-3 mr-2" />Write brief</button>}
-          <button className={`neon-box-red px-4 py-2 text-[10px] font-mono text-red-400 uppercase tracking-widest rounded-sm`} disabled={!!busy} onClick={() => act("kill", "/api/kill", { on: !view.killSwitch })}>
-            <ShieldAlert className="inline w-3 h-3 mr-2" />{view.killSwitch ? "Release kill switch" : "Kill switch"}
+        <div className="max-w-6xl mx-auto px-4 pb-3 flex flex-wrap items-center gap-2">
+          <button className="btn-primary px-4 py-2 text-sm font-medium rounded-full disabled:opacity-40 inline-flex items-center gap-2" disabled={!!busy} onClick={() => act("run", "/api/run")}><RefreshCw className={`w-4 h-4 ${busy === "run" ? "animate-spin" : ""}`} />Run now</button>
+          {view.claudeConfigured && <button className={btn} disabled={!!busy} onClick={() => act("brief", "/api/brief")}><Sparkles className="w-4 h-4" />Write brief</button>}
+          <button className="neon-box-red px-3.5 py-2 text-sm font-medium rounded-full inline-flex items-center gap-2" disabled={!!busy} onClick={() => act("kill", "/api/kill", { on: !view.killSwitch })}>
+            <ShieldAlert className="w-4 h-4" />{view.killSwitch ? "Turn kill switch off" : "Kill switch"}
           </button>
           {view.envLive && view.brokerConfigured && (
-            <button className={view.liveEnabled ? "neon-box-emerald px-4 py-2 text-[10px] font-mono uppercase tracking-widest rounded-sm" : "neon-box-red px-4 py-2 text-[10px] font-mono text-red-400 uppercase tracking-widest rounded-sm"}
+            <button className={`${view.liveEnabled ? "neon-box-emerald" : "neon-box-red"} px-3.5 py-2 text-sm font-medium rounded-full`}
               disabled={!!busy} onClick={() => { if (view.liveEnabled || window.confirm("Send REAL Dhan orders? For each active Indian trade the app BUYS " + `${view.risk.optionLots} lot(s) of the at-the-money option (CE for a buy signal, PE for a sell signal). You can lose the whole premium (up to Rs ${view.risk.maxPremiumPerTradeInr} a trade). At most ${view.risk.maxLiveTradesPerDay} trade(s) a day; no new trades after a Rs ${view.risk.dailyLossLimitInr} loss.`)) act("live", "/api/live", { enabled: !view.liveEnabled }); }}>
               {view.liveEnabled ? "Back to paper" : "Go live"}
             </button>
           )}
-          <button className={`${btn} opacity-60`} onClick={() => signOut(auth)}>Logout</button>
+          <button className={`${btn} ml-auto`} onClick={() => signOut(auth)} aria-label="Sign out"><LogOut className="w-4 h-4" /><span className="hidden sm:inline">Sign out</span></button>
         </div>
-        {(error || view.lastError) && <p className="text-xs text-red-400 font-mono">{error || view.lastError}</p>}
-      </motion.header>
+        {(error || view.lastError) && <p className="max-w-6xl mx-auto px-4 pb-3 text-sm text-loss">{error || view.lastError}</p>}
+      </header>
 
+      <main className="max-w-6xl mx-auto px-4 py-6">
       <Tabs defaultValue="home" className="w-full">
-        <TabsList className="flex flex-wrap h-auto bg-transparent gap-2 mb-6">
+        <TabsList className="flex flex-nowrap justify-start h-auto bg-surface border border-line rounded-full p-1 gap-1 mb-6 max-w-full w-fit overflow-x-auto">
           {[["home", "Home"], ["sim", "Options account"], ["trades", "All trades"], ["calls", "All calls"], ["next", "Levels"], ["rules", "Rules & safety"]].map(([v, l]) => (
-            <TabsTrigger key={v} value={v} className="neon-box-gold px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest rounded-sm data-[selected]:bg-gold/10">{l}</TabsTrigger>
+            <TabsTrigger key={v} value={v} className="flex-none px-4 py-2 text-sm font-medium rounded-full text-muted-foreground hover:text-ink data-active:bg-roki data-active:text-white data-active:shadow-none">{l}</TabsTrigger>
           ))}
         </TabsList>
 
         <TabsContent value="home"><SimpleHome view={view} /></TabsContent>
 
         <TabsContent value="next">
-          <Card className="bg-card border-gold/10">
-            <CardHeader><CardTitle className="font-serif font-normal text-xl">Next session</CardTitle>
+          <Card className="bg-card border-line">
+            <CardHeader><CardTitle className="font-display font-semibold text-xl">Next session</CardTitle>
               <CardDescription>Yesterday's high (PDH), close (PDC) and low (PDL), the 10-day average range (ADR), and the night-before odds that each level breaks. Odds are how often it happened before, not certainties.</CardDescription></CardHeader>
             <CardContent className="overflow-x-auto">
               <Table><TableHeader><TableRow>
-                {["Session", "Instrument", "PDH", "PDC", "PDL", "ADR", "High breaks", "Low breaks", "Small-gap band", "Trade triggers"].map((h) => <TableHead key={h} className="text-[10px] uppercase tracking-wider whitespace-nowrap">{h}</TableHead>)}
+                {["Session", "Instrument", "PDH", "PDC", "PDL", "ADR", "High breaks", "Low breaks", "Small-gap band", "Trade triggers"].map((h) => <TableHead key={h} className="text-xs whitespace-nowrap">{h}</TableHead>)}
               </TableRow></TableHeader><TableBody>
                 {view.levels.map((l) => (
                   <TableRow key={l.key}>
                     <TableCell className="font-mono text-xs whitespace-nowrap">{l.session}</TableCell>
-                    <TableCell className="whitespace-nowrap">{l.instrument}<div className="text-[10px] text-ivory/40">{l.market}</div></TableCell>
+                    <TableCell className="whitespace-nowrap">{l.instrument}<div className="text-xs text-muted-foreground">{l.market}</div></TableCell>
                     <TableCell className="font-mono text-xs">{num(l.pdh)}</TableCell><TableCell className="font-mono text-xs">{num(l.pdc)}</TableCell><TableCell className="font-mono text-xs">{num(l.pdl)}</TableCell>
                     <TableCell className="font-mono text-xs">{num(l.adr)}</TableCell>
                     <TableCell className="font-mono text-xs">{pct(l.highBreaks)}</TableCell><TableCell className="font-mono text-xs">{pct(l.lowBreaks)}</TableCell>
-                    <TableCell className="font-mono text-[11px] whitespace-nowrap">{l.gapFillBand}</TableCell>
-                    <TableCell className="text-[11px] min-w-[260px]">{l.triggers}</TableCell>
+                    <TableCell className="font-mono text-[13px] whitespace-nowrap">{l.gapFillBand}</TableCell>
+                    <TableCell className="text-[13px] min-w-[260px]">{l.triggers}</TableCell>
                   </TableRow>
                 ))}
               </TableBody></Table>
@@ -187,26 +189,26 @@ export default function App() {
         </TabsContent>
 
         <TabsContent value="calls" className="grid gap-4">
-          <Card className="bg-card border-gold/10">
-            <CardHeader><CardTitle className="font-serif font-normal text-xl">Scorecard</CardTitle><CardDescription>Calls are made only when the odds are 60% or more either way.</CardDescription></CardHeader>
+          <Card className="bg-card border-line">
+            <CardHeader><CardTitle className="font-display font-semibold text-xl">Scorecard</CardTitle><CardDescription>Calls are made only when the odds are 60% or more either way.</CardDescription></CardHeader>
             <CardContent className="overflow-x-auto">
-              <Table><TableHeader><TableRow>{["Market", "Question", "Scored", "Right"].map((h) => <TableHead key={h} className="text-[10px] uppercase">{h}</TableHead>)}</TableRow></TableHeader><TableBody>
+              <Table><TableHeader><TableRow>{["Market", "Question", "Scored", "Right"].map((h) => <TableHead key={h} className="text-xs">{h}</TableHead>)}</TableRow></TableHeader><TableBody>
                 {(Object.entries(stats.scorecard) as [string, { hits: number; n: number }][]).sort().map(([k, v]) => { const [m, q] = k.split("|"); return (
                   <TableRow key={k}><TableCell>{m}</TableCell><TableCell>{QUESTION[q]}</TableCell><TableCell className="font-mono">{v.n}</TableCell><TableCell className="font-mono">{pct(v.hits / v.n)}</TableCell></TableRow>); })}
-                {!stats.scored && <TableRow><TableCell colSpan={4} className="text-ivory/50">No calls scored yet.</TableCell></TableRow>}
+                {!stats.scored && <TableRow><TableCell colSpan={4} className="text-muted-foreground">No calls scored yet.</TableCell></TableRow>}
               </TableBody></Table>
             </CardContent>
           </Card>
-          <Card className="bg-card border-gold/10">
-            <CardHeader><CardTitle className="font-serif font-normal text-xl">Call log</CardTitle></CardHeader>
+          <Card className="bg-card border-line">
+            <CardHeader><CardTitle className="font-display font-semibold text-xl">Call log</CardTitle></CardHeader>
             <CardContent className="overflow-x-auto max-h-[36rem] overflow-y-auto">
-              <Table><TableHeader><TableRow>{["Session", "Instrument", "Question", "Call", "Result", "What happened"].map((h) => <TableHead key={h} className="text-[10px] uppercase">{h}</TableHead>)}</TableRow></TableHeader><TableBody>
+              <Table><TableHeader><TableRow>{["Session", "Instrument", "Question", "Call", "Result", "What happened"].map((h) => <TableHead key={h} className="text-xs">{h}</TableHead>)}</TableRow></TableHeader><TableBody>
                 {view.predictions.map((p: Prediction) => (
                   <TableRow key={p.key}>
                     <TableCell className="font-mono text-xs whitespace-nowrap">{p.session}</TableCell><TableCell>{p.instrument}</TableCell><TableCell className="text-xs">{QUESTION[p.question]}</TableCell>
                     <TableCell className="text-xs">{p.call}</TableCell>
                     <TableCell><Pill tone={p.result === "hit" ? "green" : p.result === "miss" ? "red" : p.result === "pending" ? "gold" : "muted"}>{p.result}</Pill></TableCell>
-                    <TableCell className="font-mono text-[11px] whitespace-nowrap">{p.actual}</TableCell>
+                    <TableCell className="font-mono text-[13px] whitespace-nowrap">{p.actual}</TableCell>
                   </TableRow>
                 ))}
               </TableBody></Table>
@@ -215,10 +217,10 @@ export default function App() {
         </TabsContent>
 
         <TabsContent value="trades">
-          <Card className="bg-card border-gold/10">
-            <CardHeader><CardTitle className="font-serif font-normal text-xl">Closed paper trades</CardTitle><CardDescription>Active = rule tested positive in that market. Shadow = same rule elsewhere, kept for learning; never traded live.</CardDescription></CardHeader>
+          <Card className="bg-card border-line">
+            <CardHeader><CardTitle className="font-display font-semibold text-xl">Closed paper trades</CardTitle><CardDescription>Active = rule tested positive in that market. Shadow = same rule elsewhere, kept for learning; never traded live.</CardDescription></CardHeader>
             <CardContent className="overflow-x-auto max-h-[40rem] overflow-y-auto">
-              {stats.closed.length ? <TradeTable trades={stats.closed} /> : <p className="text-sm text-ivory/50">No closed trades yet. Paper trading starts with the 22 Oct 2026 sessions.</p>}
+              {stats.closed.length ? <TradeTable trades={stats.closed} /> : <p className="text-sm text-muted-foreground">No closed trades yet. Paper trading starts with the 22 Oct 2026 sessions.</p>}
             </CardContent>
           </Card>
         </TabsContent>
@@ -226,30 +228,35 @@ export default function App() {
         <TabsContent value="sim"><SimulatorPanel api={api} /></TabsContent>
 
         <TabsContent value="rules" className="grid gap-4 md:grid-cols-2">
-          <Card className="bg-card border-gold/10">
-            <CardHeader><CardTitle className="font-serif font-normal text-xl">Rules the brain trades</CardTitle><CardDescription>Each one made money in both halves of 5 years of testing in the markets marked active. Everything else that was tested and failed is not in the engine.</CardDescription></CardHeader>
+          <Card className="bg-card border-line">
+            <CardHeader><CardTitle className="font-display font-semibold text-xl">Rules Roki trades</CardTitle><CardDescription>Each one made money in both halves of 5 years of testing in the markets marked active. Everything else that was tested and failed is not in the engine.</CardDescription></CardHeader>
             <CardContent className="grid gap-3">
               {(Object.entries(view.strategies) as [string, { description: string; activeMarkets: string[] }][]).map(([id, s]) => (
-                <div key={id} className="border border-gold/10 rounded-sm p-3">
-                  <div className="font-mono text-xs text-gold mb-1">{id}</div>
-                  <p className="text-sm text-ivory/80">{s.description}</p>
-                  <p className="text-[11px] text-ivory/50 mt-1">Active in: {s.activeMarkets.length ? s.activeMarkets.join(", ") : "none (shadow only)"}</p>
+                <div key={id} className="border border-line rounded-xl p-3">
+                  <div className="font-display text-sm font-semibold text-roki mb-1">{RULE_NAME[id] || id}</div>
+                  <p className="text-sm text-muted-foreground">{s.description}</p>
+                  <p className="text-[13px] text-muted-foreground mt-1">Active in: {s.activeMarkets.length ? s.activeMarkets.join(", ") : "none (shadow only)"}</p>
                 </div>
               ))}
             </CardContent>
           </Card>
-          <Card className="bg-card border-gold/10">
-            <CardHeader><CardTitle className="font-serif font-normal text-xl">Safety</CardTitle></CardHeader>
-            <CardContent className="text-sm grid gap-2 text-ivory/80">
-              <p><Activity className="inline w-4 h-4 mr-2 text-gold" />Live orders need all of: LIVE_TRADING_ENABLED=true on the server, Dhan keys on the server, your "Go live" click, kill switch off.</p>
+          <Card className="bg-card border-line">
+            <CardHeader><CardTitle className="font-display font-semibold text-xl">Safety</CardTitle></CardHeader>
+            <CardContent className="text-sm grid gap-2 text-muted-foreground">
+              <p><Activity className="inline w-4 h-4 mr-2 text-roki" />Live orders need all of: LIVE_TRADING_ENABLED=true on the server, Dhan keys on the server, your "Go live" click, kill switch off.</p>
               <p>Only active trades in Indian indices and stocks are ever sent. US stocks, commodities and crypto stay paper.</p>
-              <p>Live orders buy {view.risk.optionLots} lot(s) of the at-the-money option (CE for buy signals, PE for sell signals) and sell it when the brain closes the trade, or at 3:10 pm · premium per trade at most Rs {view.risk.maxPremiumPerTradeInr} · backstop stop on the option at -{view.risk.optionBackstopPct}% · at most {view.risk.maxLiveTradesPerDay} live trade(s) a day · no new trades after a Rs {view.risk.dailyLossLimitInr} loss.</p>
+              <p>Live orders buy {view.risk.optionLots} lot(s) of the at-the-money option (CE for buy signals, PE for sell signals) and sell it when Roki closes the trade, or at 3:10 pm · premium per trade at most Rs {view.risk.maxPremiumPerTradeInr} · backstop stop on the option at -{view.risk.optionBackstopPct}% · at most {view.risk.maxLiveTradesPerDay} live trade(s) a day · no new trades after a Rs {view.risk.dailyLossLimitInr} loss.</p>
               <p>If one lot would risk more than the limit, the live order is not sent (the paper trade still runs).</p>
-              <p className="text-ivory/50 text-xs">Paper trading is research. Results so far are small samples; nothing here is investment advice.</p>
+              <p className="text-muted-foreground text-xs">Paper trading is research. Results so far are small samples; nothing here is investment advice.</p>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
+      <footer className="mt-10 pt-6 border-t border-line text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
+        <span>Roki trades paper money only. Nothing here is investment advice.</span>
+        <span>Every trade, right and wrong, stays on record.</span>
+      </footer>
+      </main>
     </div>
   );
 }
@@ -257,12 +264,12 @@ export default function App() {
 function TradeTable({ trades, open = false }: { trades: PaperTrade[]; open?: boolean }) {
   const cols = open ? ["Day", "Market", "Rule", "Type", "Side", "Bought/sold at", "Safety exit", "Target", "Now %", "Broker"] : ["Day", "Market", "Rule", "Type", "Side", "Entry", "Exit", "Exit time", "Return %", "Profit on ₹1 lakh", "Broker"];
   return (
-    <Table><TableHeader><TableRow>{cols.map((h) => <TableHead key={h} className="text-[10px] uppercase whitespace-nowrap">{h}</TableHead>)}</TableRow></TableHeader><TableBody>
+    <Table><TableHeader><TableRow>{cols.map((h) => <TableHead key={h} className="text-xs whitespace-nowrap">{h}</TableHead>)}</TableRow></TableHeader><TableBody>
       {trades.map((t) => (
         <TableRow key={t.id} title={t.reason}>
           <TableCell className="font-mono text-xs whitespace-nowrap">{t.session}</TableCell>
           <TableCell className="whitespace-nowrap">{t.instrument}</TableCell>
-          <TableCell className="text-[11px] whitespace-nowrap">{RULE_NAME[t.strategy] || t.strategy}</TableCell>
+          <TableCell className="text-[13px] whitespace-nowrap">{RULE_NAME[t.strategy] || t.strategy}</TableCell>
           <TableCell><Pill tone={t.mode === "active" ? "green" : "muted"}>{t.mode === "active" ? "counted" : "learning"}</Pill></TableCell>
           <TableCell><Pill tone={t.side === 1 ? "green" : "red"}>{t.side === 1 ? "BUY" : "SELL"}</Pill></TableCell>
           <TableCell className="font-mono text-xs">{t.entry !== null ? num(t.entry) : t.status}</TableCell>
@@ -272,11 +279,11 @@ function TradeTable({ trades, open = false }: { trades: PaperTrade[]; open?: boo
             <TableCell className="font-mono text-xs"><Signed v={t.mtmPct} /></TableCell>
           </>) : (<>
             <TableCell className="font-mono text-xs">{num(t.exit)}</TableCell>
-            <TableCell className="font-mono text-[11px] whitespace-nowrap">{time(t.exitTime)}</TableCell>
+            <TableCell className="font-mono text-[13px] whitespace-nowrap">{time(t.exitTime)}</TableCell>
             <TableCell className="font-mono text-xs"><Signed v={t.retPct} /></TableCell>
             <TableCell className="font-mono text-xs whitespace-nowrap">{t.pnlInr !== null ? inr(t.pnlInr) : "—"}</TableCell>
           </>)}
-          <TableCell className="text-[11px] max-w-[220px]">{t.brokerNote || "—"}</TableCell>
+          <TableCell className="text-[13px] max-w-[220px]">{t.brokerNote || "—"}</TableCell>
         </TableRow>
       ))}
     </TableBody></Table>

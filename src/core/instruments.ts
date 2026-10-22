@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - INSTRUMENTS AND SESSIONS
+ * ROKI - INSTRUMENTS AND SESSIONS
  *
  * What the brain watches, and when each market's session starts and ends.
  * Paper trading covers every instrument; live orders (Dhan) are only ever

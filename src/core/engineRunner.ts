@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - RUNNER
+ * ROKI - RUNNER
  *
  * One engine cycle: download real prices, score finished calls, make new calls,
  * open / manage / settle paper trades. Safe to run as often as you like: every

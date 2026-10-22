@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - FIREBASE ADMIN (server only)
+ * ROKI - FIREBASE ADMIN (server only)
  *
  * Login checks need only the project id. Firestore (where the brain keeps its
  * trades) also needs a service account: put the whole JSON key in the

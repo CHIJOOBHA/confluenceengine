@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - SERVER
+ * ROKI - SERVER
  *
  * Runs the brain on real market data every few minutes (or on a cron ping),
  * keeps its paper trades and calls, optionally mirrors active Indian trades to
@@ -219,7 +219,7 @@ async function start() {
     app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
   }
   const port = Number(process.env.PORT || 3000);
-  app.listen(port, "0.0.0.0", () => console.log(`Confluence Engine on http://localhost:${port} (store: lazy, live env: ${ENV_LIVE})`));
+  app.listen(port, "0.0.0.0", () => console.log(`Roki on http://localhost:${port} (store: lazy, live env: ${ENV_LIVE})`));
   // Always-on hosts: run the brain on a timer. (Serverless hosts use /api/cron instead.)
   setTimeout(() => cycle(), 5000);
   setInterval(() => cycle(), RUN_EVERY_MIN * 60000);

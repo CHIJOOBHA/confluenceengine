@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - SIMULATED BROKER (paper account)
+ * ROKI - SIMULATED BROKER (paper account)
  *
  * Has exactly the same methods as the Dhan bridge, so the live executor runs
  * unchanged against it: same gates, same timing window, same risk limits, same

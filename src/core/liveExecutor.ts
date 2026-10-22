@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - LIVE EXECUTOR (option buying)
+ * ROKI - LIVE EXECUTOR (option buying)
  *
  * Mirrors the brain's ACTIVE paper trades in Indian markets to Dhan by BUYING an
  * at-the-money option: a BUY signal buys a CE, a SELL signal buys a PE. The most a

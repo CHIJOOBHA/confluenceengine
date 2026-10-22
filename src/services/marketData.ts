@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - MARKET DATA
+ * ROKI - MARKET DATA
  *
  * Real prices for the brain. Server-side only. Uses Yahoo Finance's public
  * chart endpoint (delayed a few minutes; fine for paper trading). For live
@@ -8,7 +8,7 @@
 
 import { DailyBar, IntradayBar } from "../core/brain.js";
 
-const UA = { "User-Agent": "Mozilla/5.0 (ConfluenceEngine)" };
+const UA = { "User-Agent": "Mozilla/5.0 (Roki)" };
 
 interface ChartResult {
   meta: { exchangeTimezoneName: string };

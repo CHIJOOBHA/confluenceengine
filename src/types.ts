@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - SHARED TYPES (dashboard view of the brain)
+ * ROKI - SHARED TYPES (dashboard view of the brain)
  */
 
 import type { PaperTrade, Market, StrategyInfo, StrategyId } from "./core/brain";

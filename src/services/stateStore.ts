@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - BRAIN STORAGE
+ * ROKI - BRAIN STORAGE
  *
  * Keeps the brain's trades, calls and levels between cycles. Uses Firestore
  * (server-side Admin SDK) when it is reachable, otherwise a local JSON file,

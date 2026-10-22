@@ -1,5 +1,5 @@
 /**
- * CONFLUENCE ENGINE - CLAUDE ANALYST
+ * ROKI - CLAUDE ANALYST
  *
  * Turns the brain's real numbers into a short plain-language brief, using
  * Anthropic's Claude (server-side; ANTHROPIC_API_KEY never reaches the browser).
@@ -14,7 +14,7 @@ import { BrainState } from "../core/engineRunner.js";
 
 export const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5-5";
 
-const SYSTEM = `You are the analyst inside the Confluence Engine, a rule-based research and paper-trading system for Indian and US markets.
+const SYSTEM = `You are the analyst inside Roki, a rule-based research and paper-trading system for Indian and US markets.
 You receive the engine's own data as JSON: next-session levels with odds, recent calls and their results, and paper trades.
 Write a brief for the owner, who is not technical. Plain English, short sentences, no jargon.
 Rules:
