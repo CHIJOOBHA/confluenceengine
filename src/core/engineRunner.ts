@@ -7,6 +7,7 @@
  * is already decided.
  */
 
+import { reviewTrade } from "./review.js";
 import {
   DailyBar, IntradayBar, PaperTrade, buildContext, signalsAtOpen, nightOdds, openOdds, newTrade, advanceTrade, Market,
 } from "./brain.js";
@@ -177,10 +178,18 @@ export async function runCycle(
       }
     }
 
-    // 2. Manage this instrument's unfinished trades
-    for (const t of Object.values(state.trades)) {
-      if (t.instrument !== inst.name || t.status === "closed" || t.status === "skipped") continue;
-      putTrade(advanceTrade(t, barsOf(t.session), isDone(t.session)));
+    // 2. Manage this instrument's unfinished trades, and review every closed one
+    for (const t0 of Object.values(state.trades)) {
+      if (t0.instrument !== inst.name || t0.status === "skipped") continue;
+      if (t0.status === "closed" && t0.review) continue;
+      const sb = barsOf(t0.session);
+      let t = t0.status === "closed" ? t0 : advanceTrade(t0, sb, isDone(t0.session));
+      if (t.status === "closed" && !t.review) {
+        const ctx = buildContext(done, t.session);
+        const rv = ctx ? reviewTrade(t, sb, ctx) : null;
+        if (rv) t = { ...t, review: rv };
+      }
+      putTrade(t);
     }
 
     // 3. Score calls for finished sessions

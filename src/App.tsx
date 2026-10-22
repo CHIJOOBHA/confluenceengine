@@ -14,6 +14,7 @@ import { RokiMark, RokiWordmark } from "./components/RokiMark";
 import { LoginGate } from "./components/LoginGate";
 import { SimulatorPanel } from "./components/SimulatorPanel";
 import { SimpleHome, RULE_NAME } from "./components/SimpleHome";
+import { TradeReview } from "./components/TradeReview";
 import { auth } from "./lib/firebase";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 
@@ -157,12 +158,13 @@ export default function App() {
       <main className="max-w-6xl mx-auto px-4 py-6">
       <Tabs defaultValue="home" className="w-full">
         <TabsList className="flex flex-nowrap justify-start h-auto bg-surface border border-line rounded-full p-1 gap-1 mb-6 max-w-full w-fit overflow-x-auto">
-          {[["home", "Home"], ["sim", "Options account"], ["trades", "All trades"], ["calls", "All calls"], ["next", "Levels"], ["rules", "Rules & safety"]].map(([v, l]) => (
+          {[["home", "Home"], ["review", "Trade review"], ["sim", "Options account"], ["trades", "All trades"], ["calls", "All calls"], ["next", "Levels"], ["rules", "Rules & safety"]].map(([v, l]) => (
             <TabsTrigger key={v} value={v} className="flex-none px-4 py-2 text-sm font-medium rounded-full text-muted-foreground hover:text-ink data-active:bg-roki data-active:text-white data-active:shadow-none">{l}</TabsTrigger>
           ))}
         </TabsList>
 
         <TabsContent value="home"><SimpleHome view={view} /></TabsContent>
+        <TabsContent value="review"><TradeReview view={view} /></TabsContent>
 
         <TabsContent value="next">
           <Card className="bg-card border-line">

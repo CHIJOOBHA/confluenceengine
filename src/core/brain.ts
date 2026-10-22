@@ -246,6 +246,8 @@ export function openOdds(history: DailyBar[], ctx: SessionContext, open: number)
 // Trade management
 // ---------------------------------------------------------------------------
 
+import type { TradeReview } from "./review.js";
+
 export interface PaperTrade {
   id: string; // session|instrument|strategy
   session: string;
@@ -268,6 +270,7 @@ export interface PaperTrade {
   entryDelayBars: number;
   stopDistance: number;
   trigger?: number | null; // BREAKOUT entry level
+  review?: TradeReview; // written when the trade closes (see review.ts)
   // live mirror (Indian active trades only, when live is switched on)
   brokerOrderId?: string;
   brokerStopOrderId?: string;
