@@ -4,6 +4,7 @@
 import { useMemo } from "react";
 import type { EngineView } from "../types";
 import { buildLearning, type Check, type RuleScore } from "../core/learning";
+import { buildResearch, type ResearchItem } from "../core/research";
 import { Badge, Empty, MARKET_NAME, PageHeader, Panel, RULE_NAME, TableWrap, VERDICT, dayLabel, inr, pctTxt, tone } from "../ui/kit";
 import type { Verdict } from "../core/review";
 
@@ -14,6 +15,9 @@ const CHECK: Record<Check["status"], [string, "neutral" | "gain" | "warn"]> = { 
 
 export function Learning({ view }: { view: EngineView }) {
   const L = useMemo(() => buildLearning(view.trades, view.predictions), [view]);
+  const R = useMemo(() => buildResearch(view.trades, view.predictions), [view]);
+  const moved = R.items.filter((i) => i.today > 0);
+  const studyOf = (d: string) => R.studies.find((x) => x.date === d);
 
   return (
     <>
@@ -25,6 +29,24 @@ export function Learning({ view }: { view: EngineView }) {
           <ul className="mt-1 list-disc pl-5 text-[14px]">{L.proposals.map((p) => <li key={p}>{p}</li>)}</ul>
         </div>
       )}
+
+      {R.latest && (
+        <section className="panel p-5 md:p-6 mb-4">
+          <p className="text-[13px] text-ink-2">What changed on {dayLabel(R.latest, true)}</p>
+          {moved.length ? (
+            <ul className="mt-2 grid gap-1.5 md:grid-cols-2 text-[14px]">
+              {moved.map((i) => <li key={i.id} className="flex gap-2"><span className="text-roki">•</span><span><span className="font-medium">{i.question}</span> <span className="text-ink-2">+{i.today} today, now {i.done} of {i.need}.</span></span></li>)}
+            </ul>
+          ) : <p className="mt-2 text-[14px] text-ink-2">No research question moved on this day.</p>}
+          {studyOf(R.latest) && <p className="mt-3 text-[14px]"><span className="font-medium">{studyOf(R.latest)!.title}</span> <span className="text-ink-2">{studyOf(R.latest)!.text}</span></p>}
+        </section>
+      )}
+
+      <Panel title="Research plan" sub="The questions Roki is working on right now, measured from its own record. Each one has a fixed sample size before Roki gives a verdict." flush className="mb-4">
+        <ul className="divide-y divide-[var(--line)]">
+          {R.items.map((i) => <ResearchRow key={i.id} i={i} />)}
+        </ul>
+      </Panel>
 
       <Panel title="Rules, live against testing" sub="First review after 20 counted trades. A pause is suggested only if a rule is below zero after 40 and clearly worse than testing." flush className="mb-4">
         {L.scores.length ? (
@@ -86,6 +108,7 @@ export function Learning({ view }: { view: EngineView }) {
                     {j.best && <>Best: <span className="font-medium">{j.best.instrument}</span> <span className={tone(j.best.pnlInr)}>{inr(j.best.pnlInr ?? 0)}</span>. </>}
                     {j.worst && <>Worst: <span className="font-medium">{j.worst.instrument}</span> <span className={tone(j.worst.pnlInr)}>{inr(j.worst.pnlInr ?? 0)}</span>.</>}
                   </p>
+                  {studyOf(j.date) && <p className="mt-3 text-[14px]"><span className="text-[12px] text-ink-3 block">Today's small study</span>{studyOf(j.date)!.text}</p>}
                   {j.lessons.length > 0 && (
                     <div className="mt-3">
                       <div className="text-[12px] text-ink-3">What Roki took from it</div>
@@ -99,5 +122,31 @@ export function Learning({ view }: { view: EngineView }) {
         ) : <Empty title="The journal starts with the first closed trade" />}
       </Panel>
     </>
+  );
+}
+
+const RS: Record<ResearchItem["status"], [string, "neutral" | "brand" | "gain"]> = { planned: ["Planned", "neutral"], collecting: ["Collecting", "brand"], finished: ["Verdict ready", "gain"] };
+
+function ResearchRow({ i }: { i: ResearchItem; key?: string }) {
+  const pct = Math.min(100, Math.round((i.done / i.need) * 100));
+  return (
+    <li className="p-4 md:p-5 grid md:grid-cols-[1.2fr_1fr] gap-x-8 gap-y-3">
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[15px] font-medium">{i.question}</span>
+          <Badge kind={RS[i.status][1]} dot>{RS[i.status][0]}</Badge>
+        </div>
+        <p className="mt-1 text-[13px] text-ink-2">{i.why}</p>
+        <p className="mt-1 text-[13px] text-ink-3">How: {i.method}</p>
+      </div>
+      <div>
+        <div className="flex items-baseline justify-between text-[13px]"><span className="text-ink-2">Progress</span><span className="num">{i.done} of {i.need}{i.today ? <span className="text-roki"> · +{i.today} today</span> : null}</span></div>
+        <div className="mt-1.5 h-1.5 rounded-full bg-sunken overflow-hidden" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <div className="h-full rounded-full bg-[linear-gradient(90deg,var(--roki-hi),var(--roki))]" style={{ width: `${pct}%` }} />
+        </div>
+        <p className="mt-2 text-[14px]">{i.finding}</p>
+        <p className="mt-1 text-[13px] text-ink-3">Next: {i.next}</p>
+      </div>
+    </li>
   );
 }
