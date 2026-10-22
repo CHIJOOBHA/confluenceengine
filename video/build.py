@@ -10,13 +10,18 @@ ROKI DAILY - build one video's voice, timings and props from a script and the da
 """
 import json, re, sys, os, subprocess
 import numpy as np, soundfile as sf
-from kokoro_onnx import Kokoro
+import audio, compliance
 
 script_path, data_path, vid = sys.argv[1], sys.argv[2], sys.argv[3]
-voice = sys.argv[4] if len(sys.argv) > 4 else "bm_george"
-speed = float(sys.argv[5]) if len(sys.argv) > 5 else 1.0
-TTS = os.environ.get("ROKI_TTS", "/tmp/claude-0/-home-claude/e5a839cb-5b48-5900-bada-84464bfc3f83/scratchpad/tts")
+voice = sys.argv[4] if len(sys.argv) > 4 else "roki"
+speed = float(sys.argv[5]) if len(sys.argv) > 5 else 1.06
 S = json.load(open(script_path)); D = json.load(open(data_path))
+
+# ---------------------------------------------------------------- 0. compliance
+problems = compliance.check(S, D)
+if problems:
+    print("COMPLIANCE CHECK FAILED:"); [print("  " + p) for p in problems]; sys.exit(1)
+print("compliance check passed")
 
 # ---------------------------------------------------------------- 1. number check
 def walk(o):
@@ -37,44 +42,64 @@ for v in walk(D):
         for m in re.findall(r"\d[\d,]*\.?\d*", v): add(m.replace(",", ""))
 for x in S.get("extraFacts", []): add(x)        # counts the script states (e.g. number of predictions), listed explicitly
 bad = []
+def screen_texts(o):
+    if isinstance(o, str): yield o
+    elif isinstance(o, dict):
+        for k2, v2 in o.items():
+            if k2 not in ("kind", "tone", "instrument", "at", "done", "need", "value", "of", "inr"): yield from screen_texts(v2)
+    elif isinstance(o, list):
+        for v2 in o: yield from screen_texts(v2)
 for seg in S["segments"]:
-    for ln in seg["lines"]:
+    for ln in seg["lines"] + [{"cap": t} for t in screen_texts(seg["scene"])]:
         for tok in re.findall(r"\d[\d,]*\.?\d*", ln["cap"]):
             t = tok.rstrip(".").replace(",", "")
             if ":" in ln["cap"] and re.search(re.escape(tok) + r"\s*(am|pm)", ln["cap"]): continue  # clock times are checked below
             v = float(t)
-            if v.is_integer() and v <= 20 and "allowSmall" in S and int(v) in S["allowSmall"]: continue
+            if v.is_integer() and 1900 < v < 2100: continue  # years in dates
             if round(v, 2) not in facts and round(v) not in facts and round(v, 1) not in facts:
                 bad.append((ln["cap"], tok))
         for tm in re.findall(r"\d{1,2}:\d{2}\s*(?:am|pm)", ln["cap"]):
+            tm = tm.replace(" ", " ")
             if tm not in json.dumps(D, ensure_ascii=False): bad.append((ln["cap"], tm))
 if bad:
     print("NUMBER CHECK FAILED - these do not appear in the day's data:")
     for c, t in bad: print(f"  {t!r} in: {c}")
     sys.exit(1)
-print("number check passed:", sum(len(s["lines"]) for s in S["segments"]), "lines")
+for seg in S["segments"]:  # numbers placed directly in scene fields must also be facts
+    sc = seg["scene"]
+    nums = []
+    for c in sc.get("cards", []): nums.append(c["inr"])
+    for t in sc.get("tiles", []): nums += [t["value"]] + ([t["of"]] if "of" in t else [])
+    for r in sc.get("rows", []): nums += [r[k] for k in ("done", "need") if k in r]
+    if "total" in sc: nums.append(sc["total"]["inr"])
+    for v in nums:
+        if round(float(v)) not in facts and round(float(v), 2) not in facts: bad.append((f"scene {sc['kind']}", str(v)))
+if bad:
+    print("NUMBER CHECK FAILED:"); [print(f"  {t!r} in: {c}") for c, t in bad]; sys.exit(1)
+print("number check passed:", sum(len(s["lines"]) for s in S["segments"]), "lines and every on-screen number")
 
-# ---------------------------------------------------------------- 2. voice
-k = Kokoro(f"{TTS}/kokoro-v1.0.onnx", f"{TTS}/voices-v1.0.bin")
-SR = 24000; GAP_LINE, GAP_SCENE, LEAD, TAIL = 0.22, 0.45, 0.35, 1.6
-audio = [np.zeros(int(LEAD * SR), dtype=np.float32)]; t = LEAD
+# ---------------------------------------------------------------- 2. voice, music, cues
+SR = audio.SR; GAP_LINE, GAP_SCENE, LEAD, TAIL = 0.18, 0.38, 0.25, 1.8
+pieces = [np.zeros(int(LEAD * SR), dtype=np.float32)]; t = LEAD
 lines, scenes = [], []
 for si, seg in enumerate(S["segments"]):
-    if si: audio.append(np.zeros(int(GAP_SCENE * SR), dtype=np.float32)); t += GAP_SCENE
+    if si: pieces.append(np.zeros(int(GAP_SCENE * SR), dtype=np.float32)); t += GAP_SCENE
     seg_start = t
     for li, ln in enumerate(seg["lines"]):
-        if li: audio.append(np.zeros(int(GAP_LINE * SR), dtype=np.float32)); t += GAP_LINE
-        a, sr = k.create(ln["say"], voice=voice, speed=speed, lang="en-gb" if voice.startswith("b") else "en-us")
-        a = a.astype(np.float32); audio.append(a); d = len(a) / sr
-        lines.append({"cap": ln["cap"], "start": round(t, 3), "end": round(t + d, 3)}); t += d
+        if li: pieces.append(np.zeros(int(GAP_LINE * SR), dtype=np.float32)); t += GAP_LINE
+        a = audio.speak(ln["say"], voice, speed * ln.get("pace", 1.0)); d = len(a) / SR
+        pieces.append(a); lines.append({"cap": ln["cap"], "start": round(t, 3), "end": round(t + d, 3)}); t += d
+        if ln.get("pause"): pieces.append(np.zeros(int(ln["pause"] * SR), dtype=np.float32)); t += ln["pause"]
     scenes.append({**seg["scene"], "from": round(max(0, seg_start - (LEAD if si == 0 else 0.3)), 3)})
 total = t + TAIL
-audio.append(np.zeros(int(TAIL * SR), dtype=np.float32))
-for i, s in enumerate(scenes): s["to"] = scenes[i + 1]["from"] + 0.3 if i + 1 < len(scenes) else round(total, 3)
+pieces.append(np.zeros(int(TAIL * SR), dtype=np.float32))
+for i, sc in enumerate(scenes): sc["to"] = scenes[i + 1]["from"] + 0.3 if i + 1 < len(scenes) else round(total, 3)
 os.makedirs(f"public/{vid}", exist_ok=True)
-raw = f"public/{vid}/raw.wav"; sf.write(raw, np.concatenate(audio), SR)
-subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", raw, "-af", "highpass=f=70,loudnorm=I=-15:TP=-1.5:LRA=7", "-ar", "48000", f"public/{vid}/voice.wav"], check=True)
-os.remove(raw)
+raw, vo, bed = f"public/{vid}/raw.wav", f"public/{vid}/vo.wav", f"public/{vid}/bed.wav"
+sf.write(raw, np.concatenate(pieces), SR)
+audio.master_voice(raw, vo); audio.music_bed(total + 1, bed); audio.mix(vo, bed, f"public/{vid}/voice.wav")
+for f in (raw, vo, bed): os.remove(f)
+if not os.path.exists("public/sfx/chime.wav"): audio.cues("public/sfx")
 
 # ---------------------------------------------------------------- 3. charts from real bars
 for s in scenes:

@@ -33,9 +33,12 @@ export type Scene =
   | { kind: "lesson"; from: number; to: number; text: string; sub: string }
   | { kind: "scoreboard"; from: number; to: number; title: string; tiles: { label: string; value: number; kind: "inr" | "ratio"; of?: number; foot: string }[] }
   | { kind: "close"; from: number; to: number; text: string; sub: string };
-export type Props = { label: string; audio: string; duration: number; lines: Line[]; scenes: Scene[] };
+export type Props = { label: string; audio: string; duration: number; lines: Line[]; scenes: Scene[]; day?: number };
 
 // ------------------------------------------------------------------ helpers
+const Sfx: React.FC<{ at: number; name: "chime" | "thud" | "whoosh" | "pop"; volume?: number }> = ({ at, name, volume = 0.5 }) => (
+  <Sequence from={Math.max(0, Math.round(at))} durationInFrames={30} layout="none"><Audio src={staticFile(`sfx/${name}.wav`)} volume={volume} /></Sequence>
+);
 const inrTxt = (v: number, signed = true) => `${signed ? (v > 0 ? "+" : v < 0 ? "−" : "") : ""}₹${Math.abs(Math.round(v)).toLocaleString("en-IN")}`;
 const toneColor = (t: Tone) => ({ gain: C.gain, loss: C.loss, brand: C.roki, neutral: C.ink })[t];
 function useIn(delay = 0, damping = 18) {
@@ -72,12 +75,21 @@ const Title: React.FC<{ children: React.ReactNode; size?: number }> = ({ childre
 
 // ------------------------------------------------------------------ scenes
 const Hook: React.FC<{ s: Extract<Scene, { kind: "hook" }> }> = ({ s }) => {
-  const p = useIn(2, 22);
-  const parts = s.accent ? s.text.split(s.accent) : [s.text];
+  const f = useCurrentFrame(); const { fps } = useVideoConfig();
+  const words = s.text.split(" ");
+  const accentWords = new Set((s.accent ?? "").split(" ").filter(Boolean));
+  const accentStart = s.accent ? s.text.indexOf(s.accent) : -1;
+  let pos = 0;
+  const step = Math.max(2, Math.min(5, Math.round(((s.to - s.from) * fps * 0.5) / words.length)));
   return (
-    <div style={{ padding: "0 80px", ...rise(p, 60) }}>
-      <div style={{ fontFamily: SERIF, ...soft, fontWeight: 500, fontSize: 104, lineHeight: 1.06, letterSpacing: "-0.03em", color: C.ink }}>
-        {parts[0]}{s.accent && <span style={{ color: toneColor(s.tone ?? "brand") }}>{s.accent}</span>}{parts[1]}
+    <div style={{ padding: "0 80px" }}>
+      <div style={{ fontFamily: SERIF, ...soft, fontWeight: 500, fontSize: words.length > 12 ? 92 : 106, lineHeight: 1.06, letterSpacing: "-0.03em", color: C.ink }}>
+        {words.map((w, i) => {
+          const here = pos; pos += w.length + 1;
+          const isAccent = accentStart >= 0 && here >= accentStart && accentWords.has(w);
+          const p = spring({ frame: f - i * step, fps, config: { damping: 16, stiffness: 140 } });
+          return <span key={i} style={{ display: "inline-block", marginRight: "0.24em", opacity: p, transform: `translateY(${(1 - p) * 30}px)`, color: isAccent ? toneColor(s.tone ?? "brand") : C.ink }}>{w}</span>;
+        })}
       </div>
     </div>
   );
@@ -166,6 +178,7 @@ const Predictions: React.FC<{ s: Extract<Scene, { kind: "predictions" }> }> = ({
           const at = 10 + (i * (len * 0.75)) / s.rows.length; const p = spring({ frame: f - at, fps, config: { damping: 18 } });
           return (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 28, padding: "26px 36px", borderTop: i ? `2px solid ${C.line}` : "none", ...rise(p, 20) }}>
+              <Sfx at={at + 4} name={r.ok ? "chime" : "thud"} volume={r.ok ? 0.28 : 0.45} />
               <div style={{ width: 70, height: 70, borderRadius: 999, flex: "none", display: "grid", placeItems: "center", fontSize: 40, fontWeight: 700, fontFamily: SANS,
                 background: r.ok ? C.gainSoft : C.lossSoft, color: r.ok ? C.gain : C.loss, transform: `scale(${p})` }}>{r.ok ? "✓" : "✕"}</div>
               <div style={{ fontFamily: SANS }}>
@@ -197,6 +210,7 @@ const Trades: React.FC<{ s: Extract<Scene, { kind: "trades" }> }> = ({ s }) => {
           const at = 8 + (i * len * 0.55) / Math.max(1, s.cards.length); const p = spring({ frame: f - at, fps, config: { damping: 18 } });
           return (
             <Card key={i} style={{ padding: "34px 40px", ...rise(p, 40) }}>
+              <Sfx at={at} name="pop" volume={0.4} />
               <div style={{ display: "flex", alignItems: "baseline", gap: 20 }}>
                 <span style={{ fontFamily: SANS, fontSize: 46, fontWeight: 650, color: C.ink, whiteSpace: "nowrap" }}>{c.name}</span>
                 <span style={{ marginLeft: "auto", whiteSpace: "nowrap", fontFamily: SANS, fontSize: 56, fontWeight: 650, letterSpacing: "-0.02em", color: c.inr >= 0 ? C.gain : C.loss, fontVariantNumeric: "tabular-nums" }}>
@@ -236,6 +250,7 @@ const Testing: React.FC<{ s: Extract<Scene, { kind: "testing" }> }> = ({ s }) =>
           const fill = interpolate(f, [at + 8, at + 40], [0, r.done / r.need], { extrapolateLeft: "clamp", extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
           return (
             <Card key={i} style={{ padding: "34px 40px", ...rise(p, 40) }}>
+              <Sfx at={at} name="pop" volume={0.35} />
               <div style={{ fontFamily: SANS, fontSize: 40, fontWeight: 600, color: C.ink, lineHeight: 1.2 }}>{r.q}</div>
               <div style={{ marginTop: 22, display: "flex", alignItems: "center", gap: 24 }}>
                 <div style={{ flex: 1, height: 18, borderRadius: 999, background: C.sunken, overflow: "hidden" }}>
@@ -353,7 +368,7 @@ export const RokiDaily: React.FC<Props> = (props) => {
         const from = Math.round(s.from * fps), dur = Math.max(1, Math.round((s.to - s.from) * fps));
         return (
           <Sequence key={i} from={from} durationInFrames={dur} layout="none">
-            <SceneWrap dur={dur}>
+            <SceneWrap dur={dur} first={i === 0}>
               <div style={{ position: "absolute", top: 230, left: 0, right: 0, bottom: 470, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                 {s.kind === "hook" && <Hook s={s} />}{s.kind === "intro" && <Intro s={s} />}{s.kind === "chart" && <Chart s={s} />}
                 {s.kind === "predictions" && <Predictions s={s} />}{s.kind === "trades" && <Trades s={s} />}{s.kind === "testing" && <Testing s={s} />}
@@ -372,8 +387,15 @@ export const RokiDaily: React.FC<Props> = (props) => {
   );
 };
 
-const SceneWrap: React.FC<{ dur: number; children: React.ReactNode }> = ({ dur, children }) => {
+const SceneWrap: React.FC<{ dur: number; first: boolean; children: React.ReactNode }> = ({ dur, first, children }) => {
   const f = useCurrentFrame();
-  const o = interpolate(f, [0, 8, dur - 8, dur], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
-  return <AbsoluteFill style={{ opacity: o }}>{children}</AbsoluteFill>;
+  const o = interpolate(f, [0, 7, dur - 7, dur], [0, 1, 1, 0], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const z = interpolate(f, [0, dur], [1, 1.025]);
+  const x = interpolate(f, [0, 9], [36, 0], { extrapolateRight: "clamp", easing: Easing.out(Easing.cubic) });
+  return (
+    <AbsoluteFill style={{ opacity: o, transform: `translateX(${first ? 0 : x}px) scale(${z})` }}>
+      {!first && <Sfx at={0} name="whoosh" volume={0.22} />}
+      {children}
+    </AbsoluteFill>
+  );
 };

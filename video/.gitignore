@@ -1,3 +1,6 @@
 node_modules
 out
+data
+props
 public/*-20*
+__pycache__

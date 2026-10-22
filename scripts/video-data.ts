@@ -1,6 +1,9 @@
 /**
  * Builds the data package for one day's Roki video, straight from the engine on real prices.
- * Run: NODE_USE_ENV_PROXY=1 npx tsx scripts/video-data.ts <india|global> <YYYY-MM-DD> <out.json> [startDate]
+ * Run: NODE_USE_ENV_PROXY=1 npx tsx scripts/video-data.ts <india|global> <YYYY-MM-DD> <out.json> [startDate] [--replay]
+ * --replay: the day is replayed through the same rules with only the data known at the time
+ * (used for the India video, which by SEBI's 30-day rule may only discuss price data 30+ days old).
+ * Research, scorecards and running totals always come from the live paper record.
  * Everything a script may say comes from this file, and the script checker compares against it.
  */
 import fs from "fs";
@@ -11,7 +14,9 @@ import { buildLearning } from "../src/core/learning.js";
 import { buildResearch } from "../src/core/research.js";
 import type { PaperTrade } from "../src/core/brain.js";
 
-const [group, date, out, start] = [process.argv[2] as "india" | "global", process.argv[3], process.argv[4], process.argv[5] || START_DATE];
+const args = process.argv.slice(2).filter((a) => a !== "--replay");
+const REPLAY = process.argv.includes("--replay");
+const [group, date, out, start] = [args[0] as "india" | "global", args[1], args[2], args[3] || START_DATE];
 const MARKETS = group === "india" ? ["IN index", "IN stock"] : ["US index", "US stock", "commodity", "crypto"];
 const inGroup = (m: string) => MARKETS.includes(m);
 const sum = (xs: PaperTrade[]) => xs.reduce((s, t) => s + (t.pnlInr ?? 0), 0);
@@ -22,9 +27,21 @@ const sum = (xs: PaperTrade[]) => xs.reduce((s, t) => s + (t.pnlInr ?? 0), 0);
   const trades = Object.values(state.trades), preds = Object.values(state.predictions);
   const closed = trades.filter((t) => t.status === "closed");
   const counted = closed.filter((t) => t.mode === "active");
-  const day = closed.filter((t) => t.session === date && inGroup(t.market));
+
+  // The day itself: live record, or a replay with only the data available at the time
+  let dayTrades = trades, dayPredsAll = preds;
+  if (REPLAY) {
+    const insts = INSTRUMENTS.filter((i) => inGroup(i.market));
+    const cache: Record<string, { d: any; i: any }> = {};
+    for (const i of insts) { cache[i.symbol] = { d: await fetchDaily(i.symbol, "5y"), i: await fetchIntraday(i.symbol, "60d", "5m") }; await new Promise((r) => setTimeout(r, 600)); }
+    const asOf = Date.parse(`${date}T23:59:00Z`) + 86400000; // the morning after, so the session is complete
+    const rs = emptyState();
+    await runCycle(rs, asOf, { daily: async (sym) => cache[sym].d, intraday: async (sym) => ({ ...cache[sym].i, bars: cache[sym].i.bars.filter((b: any) => b.t + 300000 <= asOf) }) }, insts, date);
+    dayTrades = Object.values(rs.trades); dayPredsAll = Object.values(rs.predictions);
+  }
+  const day = dayTrades.filter((t) => t.status === "closed" && t.session === date && inGroup(t.market));
   const dayCounted = day.filter((t) => t.mode === "active").sort((a, b) => (b.pnlInr ?? 0) - (a.pnlInr ?? 0));
-  const dayPreds = preds.filter((p) => p.session === date && inGroup(p.market) && (p.result === "hit" || p.result === "miss"));
+  const dayPreds = dayPredsAll.filter((p) => p.session === date && inGroup(p.market) && (p.result === "hit" || p.result === "miss"));
   const L = buildLearning(trades, preds);
   const R = buildResearch(trades, preds);
   const groupCounted = counted.filter((t) => inGroup(t.market));
@@ -39,8 +56,8 @@ const sum = (xs: PaperTrade[]) => xs.reduce((s, t) => s + (t.pnlInr ?? 0), 0);
   for (const name of want) {
     const inst = INSTRUMENTS.find((i) => i.name === name)!;
     const { start: s, end: e } = sessionBounds(inst, date);
-    const bars = (await fetchIntraday(inst.symbol, "5d", "5m")).bars.filter((b) => b.t >= s && b.t < e);
-    const daily = (await fetchDaily(inst.symbol, "3mo")).bars;
+    const bars = (await fetchIntraday(inst.symbol, REPLAY ? "60d" : "5d", "5m")).bars.filter((b) => b.t >= s && b.t < e);
+    const daily = (await fetchDaily(inst.symbol, "6mo")).bars;
     const prev = daily.filter((b) => b.date < date).pop();
     const lv = state.levels.find((l) => l.instrument === name);
     const tradesHere = day.filter((t) => t.instrument === name && t.mode === "active").map((t) => ({ side: t.side, entry: t.entry, entryTime: t.entryTime, exit: t.exit, exitTime: t.exitTime, pnlInr: t.pnlInr, strategy: t.strategy }));
@@ -49,7 +66,7 @@ const sum = (xs: PaperTrade[]) => xs.reduce((s, t) => s + (t.pnlInr ?? 0), 0);
   }
 
   const pkg = {
-    group, date, builtAt: new Date().toISOString(),
+    group, date, replay: REPLAY, builtAt: new Date().toISOString(),
     day: {
       counted: dayCounted, learning: day.filter((t) => t.mode === "shadow"),
       totalInr: sum(dayCounted), wins: dayCounted.filter((t) => (t.pnlInr ?? 0) > 0).length,
