@@ -127,6 +127,41 @@ export function buildResearch(trades: PaperTrade[], predictions: Prediction[]): 
     next: "Weekly comparison starts once the options account has its first trades.",
   });
 
+  // Live check of the 22 Oct change: Indian night-before calls now use the overnight US move
+  const usCalls = predictions.filter((p) => (p.market === "IN index" || p.market === "IN stock") && (p.question === "N_H" || p.question === "N_L")
+    && p.session >= "2026-10-23" && (p.result === "hit" || p.result === "miss"));
+  const usRight = usCalls.filter((p) => p.result === "hit").length;
+  items.push({
+    id: "us_overnight", question: "Do Indian morning calls get better with the overnight US move?",
+    why: "In 10 years of tests, a US up-night took Nifty's chance of breaking yesterday's high from 32% to 71% (mid-range closes).",
+    method: "Since 22 October, Indian night-before calls wait for the US close and use its move. Live accuracy is compared with the 77% walk-forward result.",
+    status: usCalls.length === 0 ? "collecting" : usCalls.length < 100 ? "collecting" : "finished", done: usCalls.length, need: 100,
+    today: usCalls.filter((p) => p.session === L).length,
+    finding: usCalls.length ? `${usRight} of ${usCalls.length} live calls right (${share(usRight, usCalls.length)}). Tested: Nifty 76.8%, Sensex 77.2%, Bank Nifty 77.0% (from 76.3%, 73.5%, 76.5%).`
+      : "Tested over 10 years: Nifty 76.3% → 76.8% right with 16% more calls, Sensex 73.5% → 77.2%, Bank Nifty 76.5% → 77.0%. Live check starts with the next Indian session.",
+    next: "At 100 live calls, Roki compares them with the tested 77%.",
+  });
+  items.push({
+    id: "event_days", question: "Do event days (RBI policy, US Fed and CPI, budget) break my rules?",
+    why: "Scheduled news can move markets more than a normal day; rules built on normal days may fail on them.",
+    method: "Mark every RBI, Fed, US CPI and budget day in 10 years of data, then compare rule results and prediction accuracy on those days with normal days.",
+    status: "planned", done: 0, need: 1, today: 0, finding: "Not tested yet.", next: "Next study after the event calendar is built.",
+  });
+  items.push({
+    id: "asia_rupee", question: "Do Asian markets and the rupee add anything beyond the US move?",
+    why: "Japan and Hong Kong open before India; the rupee reacts to global money overnight.",
+    method: "Add the Nikkei, Hang Seng and USD/INR overnight moves to the morning calls; keep only what improves 10-year walk-forward accuracy in both halves.",
+    status: "planned", done: 0, need: 1, today: 0, finding: "Not tested yet.", next: "Next study after event days.",
+  });
+  items.push({
+    id: "tested_no_edge", question: "Ideas tested on 22 October that did not work",
+    why: "Recording what failed keeps Roki from re-using it by accident.",
+    method: "10 years of Nifty data, split into halves; an idea counts only if it holds in both.",
+    status: "finished", done: 1, need: 1, today: 0,
+    finding: "First hour predicting the last hour: 51–52% (a coin flip), loses after costs. India VIX level: no change in how often highs or lows break. Expiry days: big gaps filled 38% vs 32% (125 cases), too small to use yet.",
+    next: "Expiry-day gaps stay on the watch list.",
+  });
+
   // Daily studies: how far did each day's big gaps come back?
   const days = [...new Set(gapT.map((t) => t.session))].sort().reverse();
   const studies: DayStudy[] = days.map((d) => {
