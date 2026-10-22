@@ -14,6 +14,7 @@ import { EngineView, PaperTrade, Prediction } from "./types";
 import { WealthSymbol } from "./components/WealthSymbol";
 import { LoginGate } from "./components/LoginGate";
 import { SimulatorPanel } from "./components/SimulatorPanel";
+import { SimpleHome, RULE_NAME } from "./components/SimpleHome";
 import { auth } from "./lib/firebase";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 
@@ -131,12 +132,9 @@ export default function App() {
         <h1 className="text-xl md:text-3xl font-medium uppercase tracking-[0.25em]">CONFLUENCE <span className="font-light italic text-gold/30">ENGINE</span></h1>
         <p className="text-[10px] font-mono tracking-[0.4em] uppercase text-ivory/40">Tested rules · real prices · paper first</p>
         <div className="flex flex-wrap justify-center gap-2">
-          <Pill tone="muted">Last run {view.lastRun ? new Date(view.lastRun).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "—"}</Pill>
-          <Pill tone="muted">Next auto run {nextRunText()}</Pill>
-          <Pill tone={view.killSwitch ? "red" : "green"}>{view.killSwitch ? "Kill switch ON" : "Engine running"}</Pill>
-          <Pill tone={view.liveEnabled ? "red" : "gold"}>{view.liveEnabled ? "LIVE orders ON" : "Paper only"}</Pill>
-          <Pill tone="muted">Store: {view.store}</Pill>
-          <Pill tone={view.claudeConfigured ? "gold" : "muted"}>{view.claudeConfigured ? `Claude: ${view.claudeModel}` : "Claude brief off"}</Pill>
+          <Pill tone="muted">Updated {view.lastRun ? new Date(view.lastRun).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }) : "—"}</Pill>
+          <Pill tone={view.liveEnabled ? "red" : "gold"}>{view.liveEnabled ? "REAL orders ON" : "Paper money only"}</Pill>
+          {view.killSwitch && <Pill tone="red">Kill switch ON</Pill>}
         </div>
         <div className="flex flex-wrap justify-center gap-3 pt-2">
           <button className={btn} disabled={!!busy} onClick={() => act("run", "/api/run")}><RefreshCw className={`inline w-3 h-3 mr-2 ${busy === "run" ? "animate-spin" : ""}`} />Run now</button>
@@ -155,66 +153,14 @@ export default function App() {
         {(error || view.lastError) && <p className="text-xs text-red-400 font-mono">{error || view.lastError}</p>}
       </motion.header>
 
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-4 mb-6">
-        {[
-          { label: "Active trades, net P&L", v: stats.active },
-          { label: "Shadow trades, net P&L", v: stats.shadow },
-        ].map(({ label, v }) => (
-          <Card key={label} className="bg-card border-gold/10">
-            <CardHeader><CardDescription className="text-[10px] uppercase tracking-widest font-mono">{label}</CardDescription>
-              <CardTitle className={`text-3xl font-serif font-normal ${v.inr > 0 ? "text-emerald-400" : v.inr < 0 ? "text-red-400" : ""}`}>{v.n ? inr(v.inr) : "—"}</CardTitle></CardHeader>
-            <CardContent className="text-xs text-ivory/50">{v.n ? `${v.n} closed, ${v.wins} won · Rs 1 lakh per trade` : "No closed trades yet"}</CardContent>
-          </Card>
-        ))}
-        <Card className="bg-card border-gold/10">
-          <CardHeader><CardDescription className="text-[10px] uppercase tracking-widest font-mono">Calls right</CardDescription>
-            <CardTitle className="text-3xl font-serif font-normal">{stats.scored ? pct(stats.hits / stats.scored) : "—"}</CardTitle></CardHeader>
-          <CardContent className="text-xs text-ivory/50">{stats.scored ? `${stats.hits} of ${stats.scored} scored` : "None scored yet"}</CardContent>
-        </Card>
-        <Card className="bg-card border-gold/10">
-          <CardHeader><CardDescription className="text-[10px] uppercase tracking-widest font-mono">Open trades</CardDescription>
-            <CardTitle className="text-3xl font-serif font-normal">{stats.open.length}</CardTitle></CardHeader>
-          <CardContent className="text-xs text-ivory/50">Most days have no trade: the rules only fire on big gaps or extreme closes.</CardContent>
-        </Card>
-      </div>
-
-      <Tabs defaultValue="today" className="w-full">
-        <TabsList className="flex flex-wrap h-auto bg-transparent gap-2 mb-4">
-          {[["today", "Today"], ["sim", "Simulator"], ["next", "Next session"], ["calls", "Calls"], ["trades", "Trades"], ["rules", "Rules & safety"]].map(([v, l]) => (
+      <Tabs defaultValue="home" className="w-full">
+        <TabsList className="flex flex-wrap h-auto bg-transparent gap-2 mb-6">
+          {[["home", "Home"], ["sim", "Options account"], ["trades", "All trades"], ["calls", "All calls"], ["next", "Levels"], ["rules", "Rules & safety"]].map(([v, l]) => (
             <TabsTrigger key={v} value={v} className="neon-box-gold px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest rounded-sm data-[selected]:bg-gold/10">{l}</TabsTrigger>
           ))}
         </TabsList>
 
-        <TabsContent value="today" className="grid gap-4 md:grid-cols-2">
-          <Card className="bg-card border-gold/10">
-            <CardHeader><CardTitle className="font-serif font-normal text-xl">Calls waiting for the market</CardTitle>
-              <CardDescription>Made only when the odds are 60% or more either way. They are scored automatically after the session.</CardDescription></CardHeader>
-            <CardContent className="overflow-x-auto">
-              {stats.upcoming.length ? (
-                <ul className="space-y-2">
-                  {stats.upcoming.map((p) => (
-                    <li key={p.key} className="flex items-baseline justify-between gap-3 border-b border-gold/5 pb-2">
-                      <span className="text-sm">{p.instrument}<span className="text-[10px] text-ivory/40 ml-2 font-mono">{p.session}</span><div className="text-xs text-ivory/50">{QUESTION[p.question]}</div></span>
-                      <span className="text-sm text-gold whitespace-nowrap">{p.call}{p.p !== null && <span className="text-ivory/50 text-xs ml-2">{pct(p.p >= 0.5 ? p.p : 1 - p.p)} sure</span>}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : <p className="text-sm text-ivory/50">No calls waiting. The engine makes new ones the night before each session (next automatic run {nextRunText()}).</p>}
-            </CardContent>
-          </Card>
-          {(view.claudeConfigured || view.brief) && <Card className="bg-card border-gold/10">
-            <CardHeader><CardTitle className="font-serif font-normal text-xl">Claude's brief</CardTitle>
-              <CardDescription>{view.brief ? `Written ${new Date(view.brief.at).toLocaleString("en-IN")} by ${view.brief.model}` : view.claudeConfigured ? "Written automatically around 8:30 am and 3:40 pm IST, or press Write brief." : "Set ANTHROPIC_API_KEY on the server to turn this on."}</CardDescription></CardHeader>
-            <CardContent><p className="text-sm leading-relaxed whitespace-pre-wrap text-ivory/85">{view.brief?.text || "No brief yet."}</p></CardContent>
-          </Card>}
-          <Card className="bg-card border-gold/10">
-            <CardHeader><CardTitle className="font-serif font-normal text-xl">Open trades</CardTitle><CardDescription>Paper positions the rules hold right now.</CardDescription></CardHeader>
-            <CardContent className="overflow-x-auto">
-              {stats.open.length ? <TradeTable trades={stats.open} open /> : <p className="text-sm text-ivory/50">No open trades.</p>}
-              {view.notes.length > 0 && <p className="mt-3 text-[11px] text-ivory/40">{view.notes.join(" · ")}</p>}
-            </CardContent>
-          </Card>
-        </TabsContent>
+        <TabsContent value="home"><SimpleHome view={view} /></TabsContent>
 
         <TabsContent value="next">
           <Card className="bg-card border-gold/10">
@@ -309,15 +255,15 @@ export default function App() {
 }
 
 function TradeTable({ trades, open = false }: { trades: PaperTrade[]; open?: boolean }) {
-  const cols = open ? ["Session", "Instrument", "Rule", "Mode", "Side", "Entry", "Stop", "Target", "Now %", "Live"] : ["Session", "Instrument", "Rule", "Mode", "Side", "Entry", "Exit", "Exit time", "Return %", "P&L", "Live"];
+  const cols = open ? ["Day", "Market", "Rule", "Type", "Side", "Bought/sold at", "Safety exit", "Target", "Now %", "Broker"] : ["Day", "Market", "Rule", "Type", "Side", "Entry", "Exit", "Exit time", "Return %", "Profit on ₹1 lakh", "Broker"];
   return (
     <Table><TableHeader><TableRow>{cols.map((h) => <TableHead key={h} className="text-[10px] uppercase whitespace-nowrap">{h}</TableHead>)}</TableRow></TableHeader><TableBody>
       {trades.map((t) => (
         <TableRow key={t.id} title={t.reason}>
           <TableCell className="font-mono text-xs whitespace-nowrap">{t.session}</TableCell>
           <TableCell className="whitespace-nowrap">{t.instrument}</TableCell>
-          <TableCell className="font-mono text-[11px]">{t.strategy}</TableCell>
-          <TableCell><Pill tone={t.mode === "active" ? "green" : "muted"}>{t.mode}</Pill></TableCell>
+          <TableCell className="text-[11px] whitespace-nowrap">{RULE_NAME[t.strategy] || t.strategy}</TableCell>
+          <TableCell><Pill tone={t.mode === "active" ? "green" : "muted"}>{t.mode === "active" ? "counted" : "learning"}</Pill></TableCell>
           <TableCell><Pill tone={t.side === 1 ? "green" : "red"}>{t.side === 1 ? "BUY" : "SELL"}</Pill></TableCell>
           <TableCell className="font-mono text-xs">{t.entry !== null ? num(t.entry) : t.status}</TableCell>
           {open ? (<>

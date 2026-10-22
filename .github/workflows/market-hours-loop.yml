@@ -1,0 +1,31 @@
+# GitHub often delays or skips frequent scheduled runs, so during Indian market hours
+# one long run starts each morning and calls the engine every 5 minutes itself.
+# (A job can run at most 6 hours, so a second run starts in the afternoon.)
+# Needs repository secrets CRON_SECRET and APP_URL.
+name: market-hours-loop
+on:
+  schedule:
+    - cron: "35 3 * * 1-5"    # 09:05 IST
+    - cron: "15 9 * * 1-5"    # 14:45 IST, covers the close and the 15:10 exit
+  workflow_dispatch: {}
+concurrency: { group: market-hours-loop, cancel-in-progress: false }
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: Call the engine every 5 minutes until 15:40 IST
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ] || [ -z "$APP_URL" ]; then echo "::warning::Add the CRON_SECRET and APP_URL repository secrets"; exit 0; fi
+          start=$(date +%s)
+          while true; do
+            hm=$(TZ=Asia/Kolkata date +%H%M)
+            [ "$hm" -ge 1540 ] && break
+            [ $(( $(date +%s) - start )) -ge 20700 ] && break      # stop before the 6-hour job limit
+            code=$(curl -s -o out.json -w '%{http_code}' -m 240 -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron")
+            echo "$(TZ=Asia/Kolkata date +%H:%M) HTTP $code $(head -c 200 out.json)"
+            sleep $(( 300 - $(date +%s) % 300 ))                     # wake on the next 5-minute mark
+          done
