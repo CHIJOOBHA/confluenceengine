@@ -110,10 +110,10 @@ export function Overview({ view }: { view: EngineView }) {
     <>
       <PageHeader title="Overview" sub={`${dayLabel(todayIST(), true)}. Every trade is ₹1 lakh of paper money with costs included. Only rules that passed testing are counted.`} />
 
-      <section className="panel p-5 md:p-6 mb-4 relative overflow-hidden">
+      <section className="panel p-6 md:p-7 mb-4 relative overflow-hidden">
         <div className="absolute inset-x-0 top-0 h-[3px] bg-[linear-gradient(90deg,var(--roki),var(--sun))]" />
         <p className="text-[13px] text-ink-2">Today</p>
-        <p className="mt-1 text-[28px] md:text-[34px] leading-tight font-semibold tracking-tight">
+        <p className="mt-1 font-display text-[30px] md:text-[38px] leading-[1.15]">
           {nothingToday ? "Roki hasn't traded today yet." : <>Roki is <span className={tone(d.today)}>{d.today > 0 ? "up" : d.today < 0 ? "down" : "flat at"} {inr(Math.abs(d.today), false)}</span> on paper.</>}
         </p>
         <p className="mt-1 text-[13px] text-ink-2">{d.open.length} open, {d.closedToday.length} closed today{d.waiting.length ? `, ${d.waiting.length} waiting for their price` : ""}.</p>

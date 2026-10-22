@@ -9,7 +9,7 @@ import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { auth } from "./lib/firebase";
 import type { EngineView } from "./types";
 import { LoginGate } from "./components/LoginGate";
-import { RokiMark } from "./components/RokiMark";
+import { RokiMark, RokiWordmark } from "./components/RokiMark";
 import { Overview } from "./pages/Overview";
 import { Review } from "./pages/Review";
 import { Learning } from "./pages/Learning";
@@ -36,9 +36,8 @@ function useRoute(): [PageId, (p: PageId) => void] {
 function SideNav({ page, go, view, onSignOut, extra }: { page: PageId; go: (p: PageId) => void; view: EngineView; onSignOut: () => void; extra?: ReactNode }) {
   return (
     <nav aria-label="Main" className="flex h-full flex-col">
-      <a href="#/overview" onClick={(e) => { e.preventDefault(); go("overview"); }} className="flex items-center gap-2.5 px-3 h-14 shrink-0" aria-label="Roki home">
-        <RokiMark className="w-7 h-7" />
-        <span className="text-[19px] font-semibold tracking-tight">roki</span>
+      <a href="#/overview" onClick={(e) => { e.preventDefault(); go("overview"); }} className="flex items-center px-4 h-16 shrink-0" aria-label="Roki home">
+        <RokiWordmark />
       </a>
       <div className="flex-1 overflow-y-auto px-2 pb-4">
         {NAV.map((g) => (
@@ -50,7 +49,7 @@ function SideNav({ page, go, view, onSignOut, extra }: { page: PageId; go: (p: P
                 return (
                   <li key={id}>
                     <a href={`#/${id}`} aria-current={on ? "page" : undefined} onClick={(e) => { e.preventDefault(); go(id); }}
-                      className={`flex items-center gap-2.5 h-9 px-3 rounded-md text-[14px] transition-colors ${on ? "bg-surface text-ink font-medium shadow-[0_0_0_1px_var(--line),0_1px_2px_rgb(16_24_40/.05)]" : "text-ink-2 hover:bg-sunken hover:text-ink"}`}>
+                      className={`flex items-center gap-2.5 h-9 px-3 rounded-[10px] text-[14px] transition-colors ${on ? "bg-surface text-ink font-medium shadow-[0_0_0_1px_var(--line),0_4px_12px_-6px_rgb(84_56_28/.18)]" : "text-ink-2 hover:bg-[color-mix(in_srgb,var(--sunken)_70%,transparent)] hover:text-ink"}`}>
                       <Icon className={`w-[17px] h-[17px] ${on ? "text-roki" : ""}`} />{label}
                     </a>
                   </li>
@@ -104,7 +103,7 @@ export default function App() {
   if (!view) {
     return (
       <div className="min-h-screen bg-canvas flex flex-col items-center justify-center gap-3 px-4 text-center">
-        <RokiMark className="w-10 h-10" />
+        <RokiMark className="w-10 h-10 animate-pulse" />
         <p className="text-[14px] text-ink-2">{error ? error : "Loading Roki…"}</p>
         {error && <button className="btn btn-secondary" onClick={refresh}><RefreshCw />Try again</button>}
       </div>
@@ -121,7 +120,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-canvas">
-      <aside className="hidden lg:block fixed inset-y-0 left-0 w-60 border-r border-line bg-canvas">
+      <aside className="hidden lg:block fixed inset-y-0 left-0 w-60 border-r border-line bg-[color-mix(in_srgb,var(--sunken)_45%,var(--canvas))]">
         <SideNav page={page} go={go} view={view} onSignOut={doSignOut} />
       </aside>
 
@@ -137,10 +136,10 @@ export default function App() {
       )}
 
       <div className="lg:pl-60">
-        <header className="sticky top-0 z-30 h-14 border-b border-line bg-[color-mix(in_srgb,var(--canvas)_88%,transparent)] backdrop-blur-md">
+        <header className="sticky top-0 z-30 h-16 border-b border-line bg-[color-mix(in_srgb,var(--canvas)_80%,transparent)] backdrop-blur-xl">
           <div className="h-full max-w-[1200px] mx-auto px-4 md:px-8 flex items-center gap-3">
             <button className="btn btn-ghost lg:hidden w-8 px-0 -ml-1" aria-label="Open menu" onClick={() => setDrawer(true)}><Menu /></button>
-            <span className="lg:hidden flex items-center gap-2"><RokiMark className="w-6 h-6" /><span className="font-semibold tracking-tight">roki</span></span>
+            <RokiWordmark size="sm" className="lg:hidden" />
             <div className="hidden sm:flex items-center gap-2 text-[13px] text-ink-2" title={view.lastRun ? `Last engine run ${new Date(view.lastRun).toLocaleString("en-IN")}` : undefined}>
               <span className="relative flex w-2 h-2">
                 {fresh && <span className="absolute inline-flex h-full w-full rounded-full bg-gain opacity-60 animate-ping" />}

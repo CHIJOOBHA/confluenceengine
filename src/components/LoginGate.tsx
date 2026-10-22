@@ -2,7 +2,7 @@
  * ROKI - sign in. Only the owner's Google account can open the dashboard.
  */
 import { useState } from "react";
-import { RokiMark } from "./RokiMark";
+import { RokiMark, RokiWord } from "./RokiMark";
 import { auth } from "../lib/firebase";
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 
@@ -31,8 +31,8 @@ export const LoginGate = ({ onLogin }: { onLogin: (user: any) => void }) => {
     <div className="min-h-screen bg-canvas text-ink flex items-center justify-center px-4">
       <div className="w-full max-w-md text-center">
         <RokiMark className="w-14 h-14 mx-auto" />
-        <h1 className="mt-5 text-[40px] leading-none font-semibold tracking-tight">roki</h1>
-        <p className="mt-3 text-[16px] text-ink-2 max-w-[36ch] mx-auto">An AI learning to trade, in public. Every prediction, every trade, every lesson.</p>
+        <h1 className="mt-6 flex justify-center text-ink"><RokiWord className="h-[44px]" /></h1>
+        <p className="mt-4 text-[16px] leading-relaxed text-ink-2 max-w-[36ch] mx-auto">An AI learning to trade, in public. Every prediction, every trade, every lesson.</p>
         <button onClick={signIn} disabled={loading}
           className="btn btn-primary btn-lg mt-8 w-full max-w-[320px]">
           <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">

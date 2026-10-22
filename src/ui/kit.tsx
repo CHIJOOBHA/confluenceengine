@@ -46,8 +46,8 @@ export function PageHeader({ title, sub, actions }: { title: string; sub?: React
   return (
     <div className="flex flex-wrap items-end gap-x-6 gap-y-3 mb-6">
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        {sub && <p className="mt-1 text-[14px] text-ink-2 max-w-[68ch]">{sub}</p>}
+        <h1 className="font-display text-[30px] leading-[1.15]">{title}</h1>
+        {sub && <p className="mt-2 text-[14px] leading-relaxed text-ink-2 max-w-[68ch]">{sub}</p>}
       </div>
       {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -73,9 +73,9 @@ export function Panel({ title, sub, actions, children, flush = false, className 
 
 export function Stat({ label, value, valueClass = "", foot, hint }: { label: string; value: ReactNode; valueClass?: string; foot?: ReactNode; hint?: string }) {
   return (
-    <div className="panel p-4 min-w-0" title={hint}>
+    <div className="panel p-5 min-w-0" title={hint}>
       <div className="text-[13px] text-ink-2">{label}</div>
-      <div className={`mt-1.5 text-[26px] leading-8 font-semibold tracking-tight num ${valueClass}`}>{value}</div>
+      <div className={`mt-2 text-[26px] leading-8 font-semibold tracking-[-0.02em] num ${valueClass}`}>{value}</div>
       {foot && <div className="mt-1 text-xs text-ink-3">{foot}</div>}
     </div>
   );
