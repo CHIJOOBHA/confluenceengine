@@ -130,6 +130,7 @@ export async function runCycle(
     try {
       daily = (await fetchers.daily(inst.symbol)).bars;
       intraday = (await fetchers.intraday(inst.symbol)).bars;
+      if (inst.session === "FUT") daily = rebuildFuturesDaily(daily, intraday);
     } catch (e) {
       notes.push(`${inst.name}: no data this cycle (${e instanceof Error ? e.message : String(e)})`);
       continue;
@@ -223,6 +224,28 @@ export async function runCycle(
   state.lastRun = new Date(now).toISOString();
   state.notes = notes;
   return { trades: [...changedTrades.values()], predictions: [...changedPreds.values()], quotes };
+}
+
+/**
+ * Gold and oil futures: Yahoo's daily bars put the live session under the previous date (dropping the session
+ * that just ended) and can come from a different contract month than the intraday bars around a roll.
+ * Rebuild every session covered by the 5-minute bars (18:00-17:00 New York, dated by its end) and use those.
+ */
+export function rebuildFuturesDaily(daily: DailyBar[], intraday: IntradayBar[]): DailyBar[] {
+  if (intraday.length < 100) return daily;
+  const byDay = new Map<string, DailyBar>();
+  for (const b of intraday) {
+    const d = dateIn("America/New_York", b.t + 6 * 3600000);
+    const wd = new Date(`${d}T12:00:00Z`).getUTCDay();
+    if (wd === 0 || wd === 6) continue;
+    const x = byDay.get(d);
+    if (!x) byDay.set(d, { date: d, open: b.open, high: b.high, low: b.low, close: b.close });
+    else { x.high = Math.max(x.high, b.high); x.low = Math.min(x.low, b.low); x.close = b.close; }
+  }
+  const rebuilt = [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date));
+  if (!rebuilt.length) return daily;
+  const first = rebuilt[0].date;
+  return [...daily.filter((b) => b.date < first), ...rebuilt];
 }
 
 export function emptyState(): BrainState {
